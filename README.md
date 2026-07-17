@@ -257,6 +257,44 @@ tab closes.
 | M8 Cron-aware wake | ✅ e2e check #9 — scheduled job wakes a suspended sandbox, zero user traffic |
 | M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e 10/10, wake ~20s, NetworkPolicy enforced |
 
+## Validations performed
+
+Everything below was executed against real clusters (kind and/or GKE), not
+inferred. Automated suites are re-runnable via the listed entry points.
+
+| Validation | Where | Evidence / entry point |
+|---|---|---|
+| Hermes image env contract (auth gates, session-secret survival, telegram `.env` injection, non-root, restart persistence) | Docker | `make validate-hermes-image` — 5 checks |
+| agent-sandbox layer (warm adoption ≤2s, env-claims rejected, NetworkPolicy enforced, suspend retains PVC+Service, resume ~11s, exec injection) | kind | `hack/m2-dress-rehearsal.sh` — 7 checks |
+| Full platform loop (provision → proxy auth + both surfaces → idle suspend → wake-on-connect → session survival → telegram → **cron wake with zero traffic** → idempotent replay → cascade delete) | kind + GKE | `make e2e` — 11 checks, green on both |
+| Multi-user concurrency (parallel warm/cold signups, concurrent traffic, cross-user 401 isolation, differential idle-suspend, transparent wake) | kind | `make simulate-users` |
+| NetworkPolicy is the isolation boundary (unlabeled pods blocked, gateway label admitted) | kind (kube-network-policies) + GKE (Dataplane V2) | in m2 script + manual GKE check |
+| GKE production deploy (AR images, warm pool 72s to Ready, e2e 11/11, wake ~20s over PD reattach) | GKE `gke-ai-eco-dev` | `make deploy-gke` + `hack/e2e.sh` |
+
+### Durability deep-dive (2026-07-17): does everything survive kill/recreate?
+
+A dedicated two-cycle suspend/recreate test (`persist` user, explicit suspend
+then two autonomous cron wakes, zero user traffic):
+
+- **Agent survives**: all three s6 services healthy after each recreation;
+  a dashboard login session created *before* the first kill was still valid
+  after it (users are never logged out by suspension).
+- **Cron jobs continue across recreations** — recurring `every 2m` job fired
+  3× across two kill cycles: `18:12:33` (cron-wake #1), `18:17:39` (in-pod
+  ticker while awake between cycles), `18:19:47` (cron-wake #2, after the
+  second suspend re-captured `next_run_at`). The
+  suspend→capture→wake→fire loop is self-sustaining. One-shot jobs wake
+  exactly once, verified separately.
+- **Skills / memory / filesystem changes survive byte-for-byte**: a planted
+  custom skill, a `MEMORY.md` append, and a workspace file had identical
+  md5 checksums after recreation. Everything under `/opt/data` (PVC) is
+  durable; anything outside it dies with the pod, by design.
+
+**Known gap**: a real LLM conversation across a suspend/resume cycle (and
+Hermes actively *loading* a planted skill) has not been exercised — the test
+clusters carry only a placeholder provider key. Ready to run once a real
+Gemini/OpenAI key is provisioned.
+
 ## Design decisions & caveats
 
 Every load-bearing decision lives here. If you change one, update this list.
