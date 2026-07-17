@@ -47,7 +47,7 @@ func FromEnv() (*Config, error) {
 		SandboxAPIKey:        os.Getenv("SANDBOX_API_SERVER_KEY"),
 		ProvisionTimeout:     durOr("PROVISION_TIMEOUT", 120*time.Second),
 		WakeTimeout:          durOr("WAKE_TIMEOUT", 60*time.Second),
-		IdleTimeout:          durOr("IDLE_TIMEOUT", 15*time.Minute),
+		IdleTimeout:          durOr("IDLE_TIMEOUT", time.Minute),
 		SuspendTelegramUsers: os.Getenv("SUSPEND_TELEGRAM_USERS") == "true",
 	}
 	if c.AdminToken == "" {

@@ -15,7 +15,7 @@ gateway:
   wakeTimeout: 60s
 
 idle:
-  timeout: 15m
+  timeout: 1m
   # If true, users with a Telegram token are ALSO idle-suspended (their bot
   # goes offline while suspended). Default false: telegram users stay up.
   suspendTelegramUsers: false

@@ -2,9 +2,6 @@
 warmPool:
   replicas: 2
 
-idle:
-  timeout: 60s
-
 sandbox:
   storage:
     size: 1Gi

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full-loop e2e against a helm-deployed hermes-service (kind values: idle=60s).
+# Full-loop e2e against a helm-deployed hermes-service (idle.timeout=1m default).
 # Exercises: provision (warm), proxy auth, both surfaces, idle suspend,
 # wake-on-connect with state persistence, telegram inject/remove, idempotent
 # replay, cascade delete, negative auth.
@@ -62,7 +62,7 @@ MODELS=$(curl -s -H "Authorization: Bearer $TOKEN" "http://$GW/u/$USER_ID/v1/mod
 echo "$MODELS" | jq -e '.object == "list"' >/dev/null || fail "v1/models failed: $MODELS"
 pass "OpenAI-compatible API through proxy (key injection)"
 
-# 5. Idle suspend (kind values: 60s timeout + 30s sweep)
+# 5. Idle suspend (1m timeout + 30s sweep)
 echo "  waiting up to 150s for idle suspension..."
 SUSPENDED=""
 for _ in $(seq 1 30); do

@@ -54,7 +54,7 @@ Note the e2e uses a port-forward, so it works before the LB is provisioned.
   certificate in front of the `hermes-gateway` Service; the plain LoadBalancer
   is HTTP-only. The dashboard's cookie login should not run over plain HTTP
   outside dev.
-- The default idle timeout is 15m (`idle.timeout`).
+- The default idle timeout is 1m (`idle.timeout`) — chosen for fast test iteration; raise it for real users if wake-on-connect churn becomes annoying.
 - gVisor hardening: schedule sandboxes onto a `--sandbox type=gvisor` node
   pool by adding `runtimeClassName: gvisor` to the SandboxTemplate podTemplate
   — documented follow-up, not enabled by default.
