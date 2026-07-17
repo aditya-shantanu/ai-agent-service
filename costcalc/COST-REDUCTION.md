@@ -141,3 +141,25 @@ CPU-request budget, not a swap failure); Terraform provider doesn't expose
 `swapConfig` yet (experiment pool lives in `hack/swap-experiment/`).
 Productionizing = swap-enabled Spot pool + requests ~100m/256Mi + a
 mixed-load density sweep to find the real thrash cliff.
+
+## Productionized (2026-07-17): swap pool is the deployed posture
+
+Full-fidelity validation on `n2d-standard-8` Spot + dedicated-LSSD swap
+(c4 was rejected: Hyperdisk-only, cannot attach existing pd-balanced user
+PVCs; the dedicated-swap profile also requires ephemeral-storage LSSDs):
+
+- **62 PVC-backed agents/node** (vs 16 before, 3.9×) — ceiling is the 100m
+  CPU request, not memory or the ~128 disk-attach limit; swap is the
+  safety net that makes 256Mi requests safe against burst overlap.
+- **Mixed load (20% concurrently active): zero degradation** — idle cohort
+  28 ms avg responses, memory PSI 0.00, load 0.33.
+- Deployed: chart requests 100m/256Mi (Burstable — required for kubelet
+  swap), sandboxes scheduled to `hermes-swap` pool
+  (`hack/gke-swap-pool.sh`; gcloud-managed until the Terraform provider
+  exposes `swapConfig`), warm spares migrated, e2e green.
+- **New floor: ~$0.14/agent** ($93/mo node ÷ 62 slots × duty×peak + disk).
+  Next squeeze documented: n2d-highcpu + swap-backed overcommit and/or
+  smaller CPU requests push toward ~$0.10; disk is now ~60% of the floor.
+- Rollback: flip `values-gke.yaml` selectors back to `hermes-sandbox`
+  (the Terraform `sandbox-pool` is kept, idle, as instant rollback —
+  ~$89/mo; delete it once the swap pool has a quiet week).

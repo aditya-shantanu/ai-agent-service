@@ -70,7 +70,7 @@
 <body>
 <div class="wrap">
   <h1>Hermes-as-a-Service — GKE cost calculator</h1>
-  <p class="sub">$/agent/month from hardware, usage and suspend/resume assumptions. Defaults show the <strong>golden scenario</strong>: the currently deployed posture (Spot e2-custom-16-20480, right-sized requests, adaptive suspension 15s/2m). Every field is editable — results update live.</p>
+  <p class="sub">$/agent/month from hardware, usage and suspend/resume assumptions. Defaults show the <strong>golden scenario</strong>: the currently deployed posture (Spot n2d-standard-8 + local-SSD swap, measured 100m/256Mi requests, adaptive suspension 15s/2m). Every field is editable — results update live.</p>
 
   <div class="tiles" id="tiles"></div>
 
@@ -131,14 +131,14 @@
 // ---------------------------------------------------------------- inputs
 const FIELDS = [
   ["Hardware", [
-    ["vcpus",        "Total vCPUs (sandbox pool)",  16],
-    ["ram",          "Total RAM (GB)",              20],
+    ["vcpus",        "Total vCPUs (sandbox pool)",  8],
+    ["ram",          "Total RAM (GB)",              32],
     ["reserve",      "System reserve (%)",          15],
     ["spares",       "Warm-pool spares (pods)",     2],
   ]],
   ["Per-agent requirements", [
-    ["cpuReq",       "vCPU request / agent",        0.5],
-    ["ramReq",       "RAM (GB) / agent",            1],
+    ["cpuReq",       "vCPU request / agent",        0.1],
+    ["ramReq",       "RAM (GB) / agent",            0.25],
     ["diskGb",       "Disk (GB) / agent (PVC)",     2],
   ]],
   ["Suspend / resume", [
@@ -158,9 +158,10 @@ const FIELDS = [
     ["peak",         "Peak factor (× mean)",        2],
   ]],
   ["Prices (editable)", [
-    ["pVcpu",        "$ / vCPU-hour",               0.006543],
-    ["pRam",         "$ / GB-RAM-hour",             0.000877],
+    ["pVcpu",        "$ / vCPU-hour",               0.00636],
+    ["pRam",         "$ / GB-RAM-hour",             0.000852],
     ["pDisk",        "$ / GB-disk-month",           0.04],
+    ["pNodeExtra",   "$ / node-month extra (LSSD)", 36],
     ["pMgmt",        "$ / hour cluster+system-pool", 0.167],
   ]],
 ];
@@ -204,7 +205,7 @@ function compute(s, resumeOverrideMs) {
   const capacity = Math.max(Math.floor(Math.min(usableCpu / s.cpuReq, usableRam / s.ramReq)) - s.spares, 0);
   const agents = duty > 0 ? Math.floor(capacity / (duty * s.peak)) : Infinity;
   const HRS = 730;
-  const nodeMonth = (s.vcpus * s.pVcpu + s.ram * s.pRam) * HRS;
+  const nodeMonth = (s.vcpus * s.pVcpu + s.ram * s.pRam) * HRS + s.pNodeExtra;
   const mgmtMonth = s.pMgmt * HRS;
   const diskMonth = (agents + s.spares) * s.diskGb * s.pDisk;
   const total = nodeMonth + mgmtMonth + diskMonth;
@@ -307,7 +308,7 @@ function render() {
   const slotsRaw = Math.max(Math.floor(Math.min(
     state.vcpus * (1 - state.reserve / 100) / state.cpuReq,
     state.ram   * (1 - state.reserve / 100) / state.ramReq)), 1);
-  const nodeUnit = (state.vcpus * state.pVcpu + state.ram * state.pRam) * 730;
+  const nodeUnit = (state.vcpus * state.pVcpu + state.ram * state.pRam) * 730 + state.pNodeExtra;
   const scalePts = [];
   for (let e = 2; e <= 6; e += 0.125) {
     const n = Math.round(Math.pow(10, e));

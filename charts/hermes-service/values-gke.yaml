@@ -14,12 +14,14 @@ hermes:
 sandbox:
   storage:
     storageClassName: ""   # GKE default (standard-rwo)
-  # Sandboxes run on the tainted Spot pool (terraform: sandbox-pool).
+  # Sandboxes run on the swap-enabled Spot pool (hack/gke-swap-pool.sh;
+  # gcloud-managed until the Terraform provider exposes swapConfig).
   # Spot preemption == an unscheduled suspend; the platform absorbs it.
+  # Rollback: flip selectors back to hermes-sandbox (terraform sandbox-pool).
   nodeSelector:
-    hermes-sandbox: "true"
+    hermes-swap: "true"
   tolerations:
-    - key: hermes-sandbox
+    - key: hermes-swap
       operator: Equal
       value: "true"
       effect: NoSchedule
