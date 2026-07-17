@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log/slog"
 	"net/http"
@@ -11,6 +12,8 @@ import (
 
 	"github.com/adityashantanu/ai-agent-service/internal/api"
 	"github.com/adityashantanu/ai-agent-service/internal/config"
+	"github.com/adityashantanu/ai-agent-service/internal/idle"
+	"github.com/adityashantanu/ai-agent-service/internal/proxy"
 	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
 	"github.com/adityashantanu/ai-agent-service/internal/server"
 )
@@ -53,9 +56,28 @@ func main() {
 		WakeTimeout:      cfg.WakeTimeout,
 	}
 
+	tracker := idle.NewTracker()
+	userProxy := &proxy.Proxy{
+		Resolver:      resolver,
+		Lifecycle:     lifecycle,
+		Tracker:       tracker,
+		DashboardPort: cfg.SandboxDashboardPort,
+		APIPort:       cfg.SandboxAPIPort,
+		APIKey:        cfg.SandboxAPIKey,
+		WakeTimeout:   cfg.WakeTimeout,
+	}
+	suspender := &idle.Suspender{
+		Tracker:              tracker,
+		Resolver:             resolver,
+		Lifecycle:            lifecycle,
+		IdleTimeout:          cfg.IdleTimeout,
+		SuspendTelegramUsers: cfg.SuspendTelegramUsers,
+	}
+	go suspender.Run(context.Background())
+
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
-		Handler:           server.New(cfg, handlers, nil /* proxy lands in M4 */),
+		Handler:           server.New(cfg, handlers, userProxy),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 	slog.Info("hermes-gateway listening", "addr", cfg.ListenAddr, "namespace", cfg.Namespace)

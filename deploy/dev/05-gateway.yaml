@@ -1,0 +1,119 @@
+# DEV ONLY — the Helm chart (M6) generates the production version of these.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hermes-gateway
+  namespace: hermes-users
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hermes-gateway
+  namespace: hermes-users
+rules:
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxtemplates", "sandboxwarmpools"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hermes-gateway
+  namespace: hermes-users
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hermes-gateway
+subjects:
+  - kind: ServiceAccount
+    name: hermes-gateway
+    namespace: hermes-users
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: hermes-gateway-admin
+  namespace: hermes-users
+type: Opaque
+stringData:
+  admin-token: dev-admin-token-16chars-min
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-gateway
+  namespace: hermes-users
+spec:
+  replicas: 1  # v1: in-memory idle state requires exactly one replica
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermes-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes-gateway  # admitted by sandbox NetworkPolicy
+    spec:
+      serviceAccountName: hermes-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: gateway
+          image: hermes-gateway:dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: HERMES_NAMESPACE
+              value: hermes-users
+            - name: WARM_POOL_NAME
+              value: hermes-pool
+            - name: IDLE_TIMEOUT
+              value: 60s  # dev: fast idle-suspend for testing
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-gateway-admin
+                  key: admin-token
+            - name: SANDBOX_API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-platform-secrets
+                  key: api-server-key
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-gateway
+  namespace: hermes-users
+spec:
+  selector:
+    app.kubernetes.io/name: hermes-gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
