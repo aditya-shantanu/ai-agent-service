@@ -1,0 +1,132 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: hermes-agent
+  namespace: hermes-users
+spec:
+  # Claims must not inject env or VCTs — doing so would bypass the warm pool
+  # (and widen the attack surface). These are the defaults, but be explicit.
+  envVarsInjectionPolicy: Disallowed
+  volumeClaimTemplatesPolicy: Disallowed
+
+  # Per-sandbox headless Service → stable DNS <sandbox>.<ns>.svc for the proxy.
+  service: true
+
+  # Shared NetworkPolicy for all sandboxes from this template.
+  # Ingress: only the platform gateway may reach the two Hermes ports.
+  # Egress: DNS + public internet (LLM APIs, Telegram). CNI must enforce
+  # NetworkPolicy for this to bite (GKE Dataplane V2 yes; kind's kindnet no).
+  networkPolicyManagement: Managed
+  networkPolicy:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: hermes-users
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: hermes-gateway
+        ports:
+          - port: 9119
+            protocol: TCP
+          - port: 8642
+            protocol: TCP
+    egress:
+      - to:
+          - namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+        ports:
+          - port: 53
+            protocol: UDP
+          - port: 53
+            protocol: TCP
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+              except:
+                - 10.0.0.0/8
+                - 172.16.0.0/12
+                - 192.168.0.0/16
+                - 169.254.169.254/32
+
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: hermes-service
+    spec:
+      securityContext:
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        runAsNonRoot: true
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:v2026.7.7.2
+          imagePullPolicy: IfNotPresent
+          args: ["sleep", "infinity"]
+          ports:
+            - name: dashboard
+              containerPort: 9119
+            - name: openai-api
+              containerPort: 8642
+          env:
+            - name: HERMES_DASHBOARD
+              value: "1"
+            - name: HERMES_DASHBOARD_HOST
+              value: "0.0.0.0"
+            - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-platform-secrets
+                  key: dashboard-username
+            - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-platform-secrets
+                  key: dashboard-password
+            - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-platform-secrets
+                  key: dashboard-session-secret
+            - name: HERMES_GATEWAY_BOOTSTRAP_STATE
+              value: "running"
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-platform-secrets
+                  key: api-server-key
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-provider-keys
+                  key: GEMINI_API_KEY
+          readinessProbe:
+            tcpSocket:
+              port: 9119
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 24
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 2Gi

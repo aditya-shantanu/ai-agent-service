@@ -1,6 +1,6 @@
 # --- Pinned versions (bump deliberately; keep in sync with docs/README) ---
 HERMES_IMAGE        ?= nousresearch/hermes-agent:v2026.7.7.2
-AGENT_SANDBOX_VERSION ?= v0.5.1
+AGENT_SANDBOX_VERSION ?= v0.5.2
 
 .PHONY: validate-hermes-image
 validate-hermes-image: ## Validate the pinned Hermes image against our env contract

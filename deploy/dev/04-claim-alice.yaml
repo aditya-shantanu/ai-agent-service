@@ -1,0 +1,17 @@
+# Example per-user claim, exactly as the control plane will create them:
+# - warmPoolRef only (no env, no VCTs, no lifecycle — see README decisions 6+7)
+# - user identity via additionalPodMetadata under the allowed label domain
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxClaim
+metadata:
+  name: hermes-alice
+  namespace: hermes-users
+  labels:
+    app.kubernetes.io/managed-by: hermes-gateway
+    hermes.ai-agent-service.dev/user: alice
+spec:
+  warmPoolRef:
+    name: hermes-pool
+  additionalPodMetadata:
+    labels:
+      sandbox.users.io/hermes-user: alice

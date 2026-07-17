@@ -21,7 +21,7 @@ user ──▶ hermes-gateway (REST control plane + authenticating proxy)
 | Milestone | State |
 |---|---|
 | M1 Hermes image contract validated | ✅ done — see `docs/hermes-image.md`, `make validate-hermes-image` |
-| M2 K8s dress rehearsal (kind) | ⬜ |
+| M2 K8s dress rehearsal (kind) | ✅ done — `hack/m2-dress-rehearsal.sh` (7 checks) |
 | M3 Control plane REST API | ⬜ |
 | M4 Proxy + wake + idle suspend | ⬜ |
 | M5 Telegram token injection | ⬜ |
@@ -51,18 +51,23 @@ Every load-bearing decision lives here. If you change one, update this list.
    `API_SERVER_KEY`, LLM provider key are the same for every sandbox).
    Required for warm pools (pod env is baked before the user is known).
    *Caveat: the NetworkPolicy admitting only the gateway is therefore the
-   real per-user isolation boundary — it is non-optional.*
+   real per-user isolation boundary — it is non-optional. Validated enforced
+   on kind (kube-network-policies ships with recent kind) and expected on GKE
+   Dataplane V2; verify enforcement on any other CNI before onboarding users.*
 5. **The pod is the sandbox.** Hermes' API server warns that its terminal
    backend is "local/unsandboxed"; in this architecture that is intentional —
    an agent can only affect its own pod and PVC.
 
-### Provisioning (agent-sandbox v0.5.1, pinned)
+### Provisioning (agent-sandbox v0.5.2, pinned)
 
 6. **SandboxClaim + SandboxWarmPool for fast first start.** Per-user claims
    must keep `spec.env` and `spec.volumeClaimTemplates` **empty** — either one
-   silently bypasses the warm pool and cold-starts. The only warm-compatible
-   per-claim customization is `additionalPodMetadata` (pod labels must use the
-   `sandbox.users.io` domain under default controller flags).
+   would bypass the warm pool and cold-start. Our template sets both injection
+   policies to `Disallowed`, so such claims are **rejected outright**
+   (validated: `EnvVarsInjectionRejected`) instead of silently cold-starting.
+   The only warm-compatible per-claim customization is `additionalPodMetadata`
+   (pod labels must use the `sandbox.users.io` domain under default controller
+   flags). Measured on kind: warm adoption ≤1s, resume from suspend ~11s.
 7. **Never set claim `lifecycle`.** Every claim-expiry path deletes the
    Sandbox, which garbage-collects the user's PVC (their entire memory).
    User deletion = delete the claim (deliberate cascade). Cost saving comes
@@ -97,7 +102,7 @@ Every load-bearing decision lives here. If you change one, update this list.
 ### Packaging
 
 16. **agent-sandbox is a documented prerequisite**, installed from its pinned
-    release manifest (`sandbox-with-extensions.yaml`, v0.5.1) — not vendored
+    release manifest (`sandbox-with-extensions.yaml`, v0.5.2) — not vendored
     as a subchart (upstream chart is unpublished and drift-prone).
 17. Our Helm chart (`charts/hermes-service`, M6) carries the gateway,
     SandboxTemplate/WarmPool, secrets and RBAC. `storageClassName` defaults to
