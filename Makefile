@@ -10,7 +10,7 @@ GCP_PROJECT ?= gke-ai-eco-dev
 AR_REGION   ?= us-central1
 AR_REPO     ?= $(AR_REGION)-docker.pkg.dev/$(GCP_PROJECT)/hermes-service
 
-.PHONY: build test lint validate-hermes-image image kind-up kind-load deploy-kind dev e2e simulate-users undeploy sandbox-install images-push deploy-gke gke-credentials help
+.PHONY: build test lint validate-hermes-image image kind-up kind-load deploy-kind dev e2e simulate-users set-provider-key undeploy sandbox-install images-push deploy-gke gke-credentials infra-apply infra-destroy eso-install gsm-push-key help
 
 build: ## Build the gateway binary
 	go build -o bin/gateway ./cmd/gateway
@@ -68,10 +68,37 @@ sandbox-install: ## Install agent-sandbox release manifest into current cluster
 gke-credentials: ## Point kubectl at the GKE cluster
 	gcloud container clusters get-credentials hermes-svc --zone=us-central1-a --project=$(GCP_PROJECT)
 
-deploy-gke: images-push sandbox-install ## PRODUCTION MODE: push images + deploy to GKE (15m idle)
+GKE_CLUSTER ?= hermes-svc
+GKE_ZONE    ?= us-central1-a
+GSM_SECRET  ?= hermes-provider-keys
+ESO_NS      ?= external-secrets
+
+infra-apply: ## Provision/update ALL GCP infra via Terraform (cluster, WI, AR, GSM, IAM)
+	cd terraform && terraform init -input=false >/dev/null && terraform apply
+
+infra-destroy: ## Tear down all Terraform-managed GCP infra
+	cd terraform && terraform destroy
+
+eso-install: ## Install External Secrets Operator (idempotent)
+	helm repo add external-secrets https://charts.external-secrets.io --force-update >/dev/null
+	helm upgrade --install external-secrets external-secrets/external-secrets \
+	  -n $(ESO_NS) --create-namespace --set installCRDs=true --wait --timeout 5m
+
+gsm-push-key: ## Push local .env values to Google Secret Manager (container+IAM owned by Terraform)
+	@test -f .env || (echo "No .env file — copy .env.example to .env and fill in your key" && exit 1)
+	@echo "Converting .env to JSON and pushing a new version to '$(GSM_SECRET)'..."
+	@python3 -c "import json; print(json.dumps(dict(l.strip().split('=',1) for l in open('.env') if l.strip() and not l.startswith('#'))))" \
+	  | gcloud secrets versions add $(GSM_SECRET) --project=$(GCP_PROJECT) --data-file=-
+
+deploy-gke: infra-apply images-push sandbox-install eso-install gsm-push-key ## PRODUCTION MODE: full GKE setup + deploy
+	$(MAKE) gke-credentials
 	helm upgrade --install hermes-service charts/hermes-service \
 	  -n $(NAMESPACE) --create-namespace -f charts/hermes-service/values-gke.yaml
 	kubectl -n $(NAMESPACE) rollout status deploy/hermes-gateway --timeout=300s
+	@echo "Waiting for provider keys to sync from Secret Manager..."
+	kubectl -n $(NAMESPACE) wait --for=condition=Ready externalsecret/hermes-provider-keys --timeout=120s
+	@echo "Cycling warm-pool spares so new sandboxes get the synced key..."
+	kubectl -n $(NAMESPACE) delete sandboxes -l agents.x-k8s.io/warm-pool-sandbox --ignore-not-found
 
 images-push: ## Build+push gateway and mirror hermes image to Artifact Registry
 	docker build --platform linux/amd64 -t $(AR_REPO)/hermes-gateway:latest .

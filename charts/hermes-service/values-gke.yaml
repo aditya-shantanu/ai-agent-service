@@ -14,3 +14,9 @@ hermes:
 sandbox:
   storage:
     storageClassName: ""   # GKE default (standard-rwo)
+
+secrets:
+  providerKeys:
+    externalSecret:
+      enabled: true
+      gcpProjectID: gke-ai-eco-dev

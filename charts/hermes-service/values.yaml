@@ -66,6 +66,14 @@ secrets:
   # infra still deploys.
   providerKeys:
     existingSecret: ""
+    # Production (GKE): sync from Google Secret Manager via External
+    # Secrets Operator instead of a hand-managed Secret. See docs/gke.md;
+    # `make deploy-gke` sets up ESO, Workload Identity, and the GSM secret.
+    externalSecret:
+      enabled: false
+      gcpProjectID: ""
+      gsmSecretName: hermes-provider-keys
+      refreshInterval: 1h
 
 networkPolicy:
   # The sandbox NetworkPolicy admitting only the gateway is the per-user

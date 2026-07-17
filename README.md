@@ -197,10 +197,12 @@ make gke-credentials        # point kubectl at the GKE cluster
 make deploy-gke             # push images + install/upgrade
 ```
 
-Provider keys live only in your local `.env` (gitignored) and the in-cluster
-Secret — never in git, values files, or shell history. Existing users pick a
-new key up on their next suspend/resume; warm spares are cycled by the make
-target so new signups get it immediately.
+Provider keys never live in git, values files, or shell history. Local mode
+loads your gitignored `.env` straight into the cluster Secret; production
+mode (`make deploy-gke`) pushes `.env` to **Google Secret Manager** and syncs
+it via **External Secrets Operator** over Workload Identity (keyless, IAM-
+audited, rotatable in one place). Existing users pick a new key up on their
+next suspend/resume; warm spares are cycled so new signups get it instantly.
 
 Both modes end with the Helm NOTES walkthrough: grab the admin token, add a
 real LLM provider key to `hermes-provider-keys`, create users, chat.
