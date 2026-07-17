@@ -62,12 +62,12 @@ flowchart LR
 
     subgraph cluster [Kubernetes cluster]
         subgraph ns [namespace: hermes-users]
-            gw["hermes-gateway (Deployment, 1 replica)<br/>control plane REST + auth proxy<br/>+ idle tracker + wake-on-connect"]
+            gw["hermes-gateway (Deployment, 1 replica)<br/>control plane REST + auth proxy<br/>+ adaptive idle tracker + wake-on-connect<br/>+ cron waker"]
 
             subgraph peruser [per user]
                 claim[SandboxClaim<br/>hermes-alice]
                 sb[Sandbox<br/>hermes-pool-xxxxx]
-                pod["Pod: hermes agent<br/>:9119 dashboard, :8642 OpenAI API<br/>+ messaging gateway (Telegram)"]
+                pod["Pod: hermes agent<br/>:9119 dashboard, :8642 OpenAI API<br/>+ messaging gateway (Telegram)<br/>(on Spot n2d + local-SSD swap pool)"]
                 pvc[("PVC /opt/data<br/>sessions·memory·skills·.env")]
                 svc[Headless Service<br/>stable DNS]
             end
@@ -77,7 +77,10 @@ flowchart LR
             netpol[NetworkPolicy<br/>ingress: gateway only]
         end
         asctrl[agent-sandbox controller]
+        eso[External Secrets Operator]
     end
+    gsm[(Google Secret Manager<br/>provider keys)]
+    tf[Terraform<br/>cluster · pools · AR · GSM · IAM]
 
     telegram_api[Telegram API]
     llm[LLM providers<br/>Gemini / OpenAI / ...]
@@ -98,6 +101,8 @@ flowchart LR
     netpol -.protects.- pod
     pod --> telegram_api
     pod --> llm
+    eso -.syncs keys via<br/>Workload Identity.-> gsm
+    tf -.provisions.- cluster
 ```
 
 **What the gateway is (and is not):** a single Go binary in an ordinary
@@ -137,7 +142,7 @@ sequenceDiagram
     participant Pod as hermes pod
     participant PVC
 
-    Note over GW: idle sweep (30s tick): no activity for idle.timeout,<br/>no open connections, not suspend-exempt
+    Note over GW: idle sweep (30s tick), ADAPTIVE window:<br/>15s tail after an isolated request,<br/>2m while a conversation is active.<br/>Skips: open connections, suspend-exempt, cron grace
     GW->>K8s: patch Sandbox operatingMode=Suspended
     K8s->>Pod: delete pod
     Note over PVC: PVC + headless Service retained.<br/>Sessions (SQLite), memory, .env all safe.
@@ -146,7 +151,7 @@ sequenceDiagram
     GW->>GW: verify token vs claim annotation (constant-time)
     GW->>K8s: patch operatingMode=Running (per-user mutex)
     K8s->>Pod: recreate pod, reattach same PVC
-    GW->>GW: hold request until Ready (≤ wakeTimeout, ~11s observed)
+    GW->>GW: hold request until Ready (≤ wakeTimeout; 11–20s observed)
     GW->>Pod: proxy request (platform API key injected)
     Pod-->>User: response — history & login session intact
 ```
@@ -175,13 +180,15 @@ sequenceDiagram
 | | **Local mode (kind)** | **Production mode (GKE)** |
 |---|---|---|
 | One command | `make dev` | `make deploy-gke` |
-| Cluster | kind `hermes-svc` (created for you) | GKE `hermes-svc` in `gke-ai-eco-dev` (create once — `docs/gke.md`) |
+| Cluster | kind `hermes-svc` (created for you) | GKE `hermes-svc` in `gke-ai-eco-dev` — **Terraform-managed** (`make infra-apply`) |
 | Values | `values-kind.yaml` | `values-gke.yaml` |
-| Idle suspend | **1m** (default) | **1m** (default) — deliberately short for fast test iteration; raise `idle.timeout` for real users |
+| Idle suspend | adaptive: **15s** isolated / **2m** in-conversation | same (deliberately short for test iteration; both are values knobs) |
 | Warm pool | 2 spares | 5 spares |
 | Images | built locally, `kind load`ed | pushed to Artifact Registry (`make images-push`) |
 | Exposure | `kubectl port-forward` | LoadBalancer (put TLS/Ingress in front for real traffic) |
 | NetworkPolicy | enforced (kube-network-policies) | enforced (Dataplane V2) |
+| Sandbox nodes | kind node | **Spot `n2d-standard-8` + local-SSD swap** (62 agents/node measured) |
+| Provider keys | `.env` → cluster Secret (`make set-provider-key`) | `.env` → Secret Manager → ESO sync (keyless Workload Identity) |
 
 ```sh
 # LOCAL: everything from zero to a working platform
@@ -192,9 +199,9 @@ make e2e                    # verify: 11-check suite
 cp .env.example .env        # fill in GEMINI_API_KEY (file is gitignored)
 make set-provider-key       # loads .env into the cluster, cycles warm spares
 
-# PRODUCTION: after the one-time GKE setup in docs/gke.md
-make gke-credentials        # point kubectl at the GKE cluster
-make deploy-gke             # push images + install/upgrade
+# PRODUCTION: one command does everything (Terraform infra, images, ESO,
+# Secret Manager key push, swap pool, helm) — see docs/gke.md
+make deploy-gke
 ```
 
 Provider keys never live in git, values files, or shell history. Local mode
@@ -214,7 +221,7 @@ Three layers, fastest to slowest:
 
 ```sh
 make test              # unit tests (fake clientsets, httptest) — seconds
-make e2e               # full-loop platform test — ~4 min on kind
+make e2e               # full-loop platform test — ~10 min on kind
 make simulate-users    # multi-user emulation — ~5 min on kind
 ```
 
@@ -224,8 +231,9 @@ auth negatives → dashboard login through the proxy → OpenAI-compatible call 
 idle suspension (asserts pod deleted, PVC retained) → wake-on-connect (asserts
 one request transparently resumes) → session survival across suspend/resume →
 Telegram inject/remove → idempotent replay → cascade delete. It works against
-either mode (`NS=hermes-users hack/e2e.sh`), but the idle phase needs the
-1m default timeout, so it runs unmodified against both kind and GKE.
+either mode (`NS=hermes-users hack/e2e.sh`) unmodified — the idle phase
+accounts for the adaptive window (request bursts count as conversations,
+so suspension lands after the 2m active tail).
 
 ### Emulating multiple users
 
@@ -264,9 +272,11 @@ tab closes.
 | M3 Control plane REST API | ✅ unit tests + live kind validation |
 | M4 Proxy + wake + idle suspend | ✅ wake hold ~11s observed on kind |
 | M5 Telegram token injection | ✅ inject/remove + suspend exemption |
-| M6 Helm chart + e2e | ✅ `make e2e` — 10/10 |
+| M6 Helm chart + e2e | ✅ `make e2e` — 11 checks |
+| M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e green, NetworkPolicy enforced |
 | M8 Cron-aware wake | ✅ e2e check #9 — scheduled job wakes a suspended sandbox, zero user traffic |
-| M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e 10/10, wake ~20s, NetworkPolicy enforced |
+| Infra as Terraform + Secret Manager keys | ✅ from-zero rebuild validated; ESO/Workload Identity sync |
+| Cost posture (Spot, shape, measured requests, adaptive suspension, **LSSD swap**) | ✅ \$12.88 → **\$0.14/agent at-scale floor** — `costcalc/COST-REDUCTION.md` |
 
 ## Validations performed
 
@@ -281,6 +291,7 @@ inferred. Automated suites are re-runnable via the listed entry points.
 | Multi-user concurrency (parallel warm/cold signups, concurrent traffic, cross-user 401 isolation, differential idle-suspend, transparent wake) | kind | `make simulate-users` |
 | NetworkPolicy is the isolation boundary (unlabeled pods blocked, gateway label admitted) | kind (kube-network-policies) + GKE (Dataplane V2) | in m2 script + manual GKE check |
 | GKE production deploy (AR images, warm pool 72s to Ready, e2e 11/11, wake ~16-20s over PD reattach) | GKE `gke-ai-eco-dev` | `make deploy-gke` + `hack/e2e.sh` |
+| **Swap density + mixed load (2026-07-17)**: 62 PVC-backed agents on one n2d-standard-8 Spot node (3.9×), 20% concurrently active → idle cohort 28ms avg, memory PSI 0.00; earlier no-PVC run: 198 agents/node, ~29GB paged to SSD, 117–195ms swapped responses | GKE swap pool | `hack/swap-experiment/` + `hack/gke-swap-pool.sh` |
 | **From-zero Terraform rebuild (2026-07-17)**: `terraform apply` (cluster/WI/AR/GSM/IAM) → full deploy chain → e2e 11/11 → real Gemini chat → memory recalled across suspend/kill/wake in 25s (key synced from Secret Manager via ESO/Workload Identity) | GKE, fresh cluster | `make deploy-gke` |
 
 ### Durability deep-dive (2026-07-17): does everything survive kill/recreate?
@@ -366,7 +377,7 @@ Every load-bearing decision lives here. If you change one, update this list.
    (`EnvVarsInjectionRejected`) instead of silently cold-starting. The only
    warm-compatible per-claim customization is `additionalPodMetadata`
    (pod labels must use the `sandbox.users.io` domain under default
-   controller flags). Measured on kind: warm adoption ≤2s; resume ~11s.
+   controller flags). Measured: warm adoption ≤2s; resume 11–20s.
 7. **Never set claim `lifecycle`.** Every claim-expiry path deletes the
    Sandbox, which garbage-collects the user's PVC (their entire memory).
    User deletion = delete the claim (deliberate cascade: sandbox + PVC +
@@ -423,21 +434,51 @@ Every load-bearing decision lives here. If you change one, update this list.
     with the process, so after a gateway restart every user gets a fresh
     idle window (worst case: one extra `idle.timeout` of runtime). Suspended
     users stay suspended.
+18. **Adaptive idle suspension (Level 1)**: 15s tail after an isolated
+    request; 2m while a conversation is active (two activities within
+    `idle.activeTimeout`); decays back automatically. Conversations pay
+    resume+tail once, not per message; bookkeeping (first-sight, admin
+    polling) never counts as activity.
 
 ### Packaging
 
-18. **agent-sandbox is a documented prerequisite**, installed from its pinned
+19. **agent-sandbox is a documented prerequisite**, installed from its pinned
     release manifest (`sandbox-with-extensions.yaml`, v0.5.2 — `make
     sandbox-install`) — not vendored as a subchart (upstream chart is
     unpublished and drift-prone). Go module pin matches: `sigs.k8s.io/agent-sandbox v0.5.2`.
-19. **Helm chart** (`charts/hermes-service`) carries gateway, SandboxTemplate,
+20. **Helm chart** (`charts/hermes-service`) carries gateway, SandboxTemplate,
     WarmPool, RBAC and secrets. Platform secrets are **generated on first
     install and preserved across upgrades** (`lookup`-based); bring your own
     via `secrets.*.existingSecret`. `storageClassName: ""` = cluster default
     (works on kind and GKE). Provider keys go in one Secret injected via
     `envFrom` — add any `*_API_KEY` without touching the chart.
-20. Images for GKE live in Artifact Registry in `gke-ai-eco-dev`
+21. Images for GKE live in Artifact Registry in `gke-ai-eco-dev`
     (`make images-push` builds amd64 and mirrors the pinned Hermes image).
+22. **GCP infra is Terraform** (`terraform/`): cluster (DPv2 + Workload
+    Identity), system node pool, Artifact Registry, the Secret Manager
+    secret *container*, and ESO's IAM binding. Deliberately NOT Terraform:
+    secret *values* (never in TF state — pushed from `.env` via
+    `make gsm-push-key`) and the swap node pool (provider doesn't expose
+    `swapConfig` yet — `hack/gke-swap-pool.sh`, idempotent via
+    `make gke-swap-pool`).
+
+### Cost posture (measured — see costcalc/)
+
+23. **Split node pools**: small on-demand `system-pool` (gateway,
+    controllers, ESO — stable footing) + Spot sandbox pool. Spot preemption
+    is just an unscheduled suspend; the platform absorbs it by design.
+24. **Sandboxes run on an LSSD-swap Spot pool** (`n2d-standard-8` + dedicated
+    local-SSD swap): 62 PVC-backed agents/node measured (CPU-request bound;
+    memory and the ~128 disk-attach limit both clear), mixed load clean.
+    *Caveats: pods must stay Burstable (requests<limits) or kubelet swap is
+    off; c4 machines are Hyperdisk-only and cannot attach existing
+    pd-balanced user PVCs — that's why n2d.*
+25. **Requests are measured, not guessed**: steady-state Hermes RSS is
+    248 MiB → requests 100m/256Mi, limits 2 vCPU/2Gi; swap is the safety
+    net against burst overlap. Cost trajectory: \$12.88 → **~\$0.67/agent**
+    today (single node) → **\$0.14 at-scale floor**, with disk now ~60% of
+    the floor. Full history + next levers: `costcalc/COST-REDUCTION.md`;
+    interactive model: `costcalc/index.html`.
 
 ## Future work
 
@@ -476,9 +517,14 @@ Designed and researched, deliberately not built yet:
      window all stay; only the annotation's *writer* changes. Run both
      paths in parallel behind a `cron.pushProvider` values flag until the
      upstream interface is declared stable, then delete `cronpeek.go`.
+- **Disk economics** — now the top cost lever (~60% of the at-scale floor):
+  verify PD minimum-size rounding, cheaper tiers, and archival snapshots for
+  long-dormant users (`costcalc/COST-REDUCTION.md`).
+- Fold the swap pool into Terraform when the provider exposes `swapConfig`;
+  delete the idle rollback `sandbox-pool` after a quiet week.
 - TLS/domain in front of the gateway on GKE; gVisor node pool for sandbox
   hardening; webhook-mode Telegram (suspendable bot users); gateway
-  scale-out.
+  scale-out (also gated on the Envoy plan).
 
 ## Development
 
@@ -486,9 +532,12 @@ Designed and researched, deliberately not built yet:
 make help                  # all targets
 make build test lint       # Go dev loop
 make kind-up deploy-kind   # local cluster + install
-make e2e                   # full-loop test (10 checks)
+make e2e                   # full-loop test (11 checks)
 ```
 
 Layout: `cmd/gateway` (binary) · `internal/{config,server,api,auth,sandbox,proxy,idle,telegram}`
-· `charts/hermes-service` (Helm) · `deploy/dev` (raw manifests used during
-bring-up; the chart supersedes them) · `hack/` (scripts) · `docs/`.
+· `charts/hermes-service` (Helm) · `terraform/` (GCP infra) ·
+`costcalc/` ($/agent model + cost roadmap) · `deploy/dev` (raw manifests used
+during bring-up; the chart supersedes them) · `hack/` (kind bootstrap, e2e,
+simulation, swap pool + experiments) · `docs/` (image contract, API, GKE,
+cron design, Envoy plan).
