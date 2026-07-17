@@ -1,0 +1,60 @@
+# Cost-reduction roadmap ($/agent/month)
+
+Scenario math from the model in this folder (defaults now reflect the
+current deployed posture). History and remaining levers, in order of
+leverage. Baseline before any of this: **$12.88/agent** (2×e2-standard-4
+on-demand, 2 vCPU/2 GB requests).
+
+## Done (2026-07-17) — deployed and e2e-validated
+
+1. **Right-sized requests** — requests 500m/1Gi (limits 2 vCPU/2Gi) instead
+   of 2/2 flat. Requests are what bind bin-packing; limits keep burst room.
+   *(chart `sandbox.resources`)*
+2. **Balanced machine shape** — sandbox nodes are `e2-custom-16-20480`
+   (~1.25 GB/vCPU): enough RAM to cover GKE node reservations, none idle.
+   1:4 "standard" shapes waste RAM dollars; 1:1 "highcpu" shapes go
+   RAM-bound after reservations. *(terraform `sandbox_machine_type`)*
+3. **Spot sandbox pool** — the platform is restart-tolerant *by design*
+   (a preemption is just an unscheduled suspend; PVC survives, sessions
+   resume, cron catches up), so sandboxes ride Spot (~70% off). Gateway +
+   controllers stay on a small on-demand `system-pool`.
+   *(terraform `sandbox-pool` + chart `sandbox.tolerations/nodeSelector`)*
+
+Result: ~**$0.75–1.00/agent** at current single-node scale; marginal
+$/agent → **~$0.50** as sandbox nodes are added (fixed costs amortize).
+
+## TODO — next levers, in order
+
+4. **Measure, then tighten requests further.** Instrument real usage
+   (`kubectl top` / VPA recommendations on busy agents). If idle RSS is
+   well under 1 Gi, dropping the RAM request directly multiplies density.
+   Exit: a load test justifying the numbers in `values.yaml`.
+5. **Adaptive idle timeout.** At 60 s fixed, idle-tail is ~half of every
+   interaction's pod-time; cutting to ~15 s adds ~50% capacity but taxes
+   quick follow-ups with a wake. Proposal: short default (15 s) that the
+   gateway extends while a conversation is active (recent requests within
+   N minutes → longer window). Exit: capacity gain with no wake during an
+   active chat session.
+6. **GKE free tier / fee check.** The $0.10/h cluster fee is waived for one
+   zonal cluster per billing account — this cluster qualifies. Confirm on
+   the bill; if another cluster claims it, that's still ~$73/mo across all
+   agents.
+7. **Committed-use discounts.** Once baseline usage is predictable: 1-yr
+   (~37%) or 3-yr (~55%) CUD covering the system pool + the always-on
+   fraction of the sandbox pool; Spot continues to cover burst.
+8. **Faster resume (engineering, parked behind the Envoy plan).** Only ~8%
+   of pod-time at a 60 s idle timeout — becomes first-order *after* #5.
+   Levers: GKE image streaming, slimmer boot (skip services users don't
+   use), and eventually pod checkpoint/restore. Re-run the calculator
+   sweep after each improvement; the "resume time" charts exist precisely
+   to track this.
+9. **Cluster autoscaler on the sandbox pool.** Fixed node counts pay for
+   the peak all day. Autoscaling the Spot pool (min 1) trims the off-peak
+   tail; pairs naturally with #7's CUD floor.
+10. **Per-user cost attribution.** Not a reducer, but the prerequisite for
+    pricing: meter pod-seconds + LLM tokens per user (the LLM key is
+    platform-shared today; an LLM proxy with per-user keys/quotas is the
+    end state — see README future work).
+
+Re-derive any scenario by editing the fields in `index.html` — that is the
+tool's job.

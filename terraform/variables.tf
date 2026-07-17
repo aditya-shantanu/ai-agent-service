@@ -22,16 +22,22 @@ variable "cluster_name" {
   default     = "hermes-svc"
 }
 
-variable "node_machine_type" {
-  description = "Node machine type"
+variable "system_machine_type" {
+  description = "Machine type for the system pool (gateway, controllers, ESO)"
   type        = string
-  default     = "e2-standard-4"
+  default     = "e2-standard-2"
 }
 
-variable "node_count" {
-  description = "Number of nodes"
+variable "sandbox_machine_type" {
+  description = "Machine type for the Spot sandbox pool. e2-custom with ~1.25GB/vCPU covers GKE node reservations without idle RAM (cost model: costcalc/)"
+  type        = string
+  default     = "e2-custom-16-20480"
+}
+
+variable "sandbox_node_count" {
+  description = "Number of Spot sandbox nodes"
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "gsm_secret_name" {

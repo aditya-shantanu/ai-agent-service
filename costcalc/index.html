@@ -114,14 +114,14 @@
 // ---------------------------------------------------------------- inputs
 const FIELDS = [
   ["Hardware", [
-    ["vcpus",        "Total vCPUs",                 8],
-    ["ram",          "Total RAM (GB)",              32],
+    ["vcpus",        "Total vCPUs (sandbox pool)",  16],
+    ["ram",          "Total RAM (GB)",              20],
     ["reserve",      "System reserve (%)",          15],
     ["spares",       "Warm-pool spares (pods)",     2],
   ]],
   ["Per-agent requirements", [
-    ["cpuReq",       "vCPU request / agent",        2],
-    ["ramReq",       "RAM (GB) / agent",            2],
+    ["cpuReq",       "vCPU request / agent",        0.5],
+    ["ramReq",       "RAM (GB) / agent",            1],
     ["diskGb",       "Disk (GB) / agent (PVC)",     2],
   ]],
   ["Suspend / resume", [
@@ -138,10 +138,10 @@ const FIELDS = [
     ["peak",         "Peak factor (× mean)",        2],
   ]],
   ["Prices (editable)", [
-    ["pVcpu",        "$ / vCPU-hour",               0.02181],
-    ["pRam",         "$ / GB-RAM-hour",             0.00292],
+    ["pVcpu",        "$ / vCPU-hour",               0.006543],
+    ["pRam",         "$ / GB-RAM-hour",             0.000877],
     ["pDisk",        "$ / GB-disk-month",           0.04],
-    ["pMgmt",        "$ / hour cluster fee",        0.10],
+    ["pMgmt",        "$ / hour cluster+system-pool", 0.167],
   ]],
 ];
 

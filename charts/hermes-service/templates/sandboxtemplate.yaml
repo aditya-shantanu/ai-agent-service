@@ -64,6 +64,14 @@ spec:
         runAsGroup: 10000
         fsGroup: 10000
         runAsNonRoot: true
+      {{- with .Values.sandbox.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.sandbox.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       initContainers:
         # Pre-seed a minimal config.yaml BEFORE Hermes' own first-boot seed
         # (which only copies its example if the file is absent): sets the

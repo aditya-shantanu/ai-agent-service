@@ -26,23 +26,54 @@ resource "google_container_cluster" "hermes" {
   deletion_protection = false
 }
 
-resource "google_container_node_pool" "default" {
-  name     = "default-pool"
+# System pool: gateway, agent-sandbox controller, ESO, kube-system. Small,
+# on-demand (the gateway's in-memory idle state shouldn't ride Spot).
+resource "google_container_node_pool" "system" {
+  name     = "system-pool"
   cluster  = google_container_cluster.hermes.name
   location = var.zone
 
-  node_count = var.node_count
+  node_count = 1
 
   node_config {
-    machine_type = var.node_machine_type
+    machine_type = var.system_machine_type
     image_type   = "COS_CONTAINERD"
-
-    # Required for Workload Identity: pods get identities via the GKE
-    # metadata server, not the node service account.
     workload_metadata_config {
       mode = "GKE_METADATA"
     }
+    oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
+  }
+}
 
+# Sandbox pool: Spot VMs — the platform is restart-tolerant by design
+# (suspend/resume IS a kill; PVCs survive; Hermes resumes sessions), so a
+# Spot preemption is just an unscheduled suspend. Tainted so only sandbox
+# pods (which carry the toleration via the SandboxTemplate) land here.
+# Shape: e2-custom with ~1.25GB RAM per vCPU — enough to cover GKE node
+# reservations without paying for idle RAM (nodes bin-pack CPU-and-RAM
+# balanced for ~1vCPU/1GB agent requests).
+resource "google_container_node_pool" "sandbox" {
+  name     = "sandbox-pool"
+  cluster  = google_container_cluster.hermes.name
+  location = var.zone
+
+  node_count = var.sandbox_node_count
+
+  node_config {
+    machine_type = var.sandbox_machine_type
+    image_type   = "COS_CONTAINERD"
+    spot         = true
+
+    labels = { "hermes-sandbox" = "true" }
+    taint {
+      key    = "hermes-sandbox"
+      value  = "true"
+      effect = "NO_SCHEDULE"
+    }
+
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
     oauth_scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 }
