@@ -383,13 +383,32 @@ Designed and researched, deliberately not built yet:
   only as self-hosted Envoy behind an L4 passthrough NLB — GKE's managed
   Gateway is disqualified (Service Extensions timeout caps; no dynamic
   upstream steering). Four spikes remain before implementation.
-- **Cron phase 2** (`docs/cron-wake-design.md`): Hermes' pluggable
-  `CronScheduler` provider interface is today marked EXPERIMENTAL upstream
-  (one consumer; hooks like `on_jobs_changed`/`fire_due` not shipped).
-  **Once it stabilizes, adopt it directly**: a provider plugin (selected via
-  `cron.provider`) pushing schedule changes to the platform in real time
-  would replace our exec-read-at-suspend capture entirely — it is the
-  upstream-blessed integration for scale-to-zero platforms like this one.
+- **Cron phase 2 — adopt Hermes' `CronScheduler` provider interface when it
+  stabilizes** (today EXPERIMENTAL upstream: one consumer, and the hooks it
+  needs — `on_jobs_changed`/`fire_due`/`reconcile` — are planned but not
+  shipped). Proposed integration once ready:
+  1. **Ship a provider plugin** (`plugins/cron_providers/k8s_platform/`)
+     baked into our Hermes image config seed and selected via
+     `cron.provider: k8s_platform` in the bootstrap `config.yaml`. Its
+     `is_available()` checks for the platform env (`PLATFORM_CRON_ENDPOINT`
+     injected by the SandboxTemplate); on any failure Hermes auto-falls back
+     to the built-in 60s ticker, so worst case equals today's behavior.
+  2. **Push, don't peek**: on `on_jobs_changed`, the provider POSTs the
+     job list's earliest `next_run_at` to a small gateway endpoint
+     (`PUT /api/v1/users/{id}/next-cron`, authenticated with the shared
+     in-sandbox platform credential; the gateway maps pod identity → user
+     via the `sandbox.users.io/hermes-user` pod label). The gateway writes
+     the same `next-cron-wake` claim annotation used today — the waker loop
+     is unchanged. This deletes the exec-read-at-suspend capture and its
+     only staleness window (jobs edited between capture and suspend).
+  3. **Fire via the interface**: the waker calls the provider's `fire_due`
+     (through a gateway→pod call or exec) instead of `hermes cron tick`,
+     letting Hermes own dedup/catch-up semantics natively; `reconcile` on
+     boot replaces our reliance on implicit boot catch-up.
+  4. **Migration is additive**: annotation names, waker loop, and grace
+     window all stay; only the annotation's *writer* changes. Run both
+     paths in parallel behind a `cron.pushProvider` values flag until the
+     upstream interface is declared stable, then delete `cronpeek.go`.
 - TLS/domain in front of the gateway on GKE; gVisor node pool for sandbox
   hardening; webhook-mode Telegram (suspendable bot users); gateway
   scale-out.
