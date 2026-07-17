@@ -107,3 +107,27 @@ single cluster's etcd object budget), the Envoy data plane becomes mandatory
 (~46k concurrent connections vs the 1-replica gateway), Spot capacity
 diversification across zones, and mass-wake herd management — all already
 tracked in the README future-work section.
+
+## Swap experiment results (2026-07-17, Spot c4-standard-8-lssd, 318GB LSSD swap)
+
+Measured, not modeled — one 8 vCPU / 29 GB node running real Hermes agents
+(same image/env as sandboxes, ephemeral storage, idle traffic):
+
+| Metric | Result |
+|---|---|
+| Steady-state Hermes RSS | **248 MiB** (vs 1 GiB requested today — TODO #4 answered) |
+| Healthy agents on ONE node | **198/200** (~1.8× the no-swap RAM ceiling of ~110) |
+| Cold pages parked on SSD | ~29 GB, node RAM steady at ~1.7 GB available |
+| Swapped-agent response time | 117 ms avg under load; 195 ms avg / 377 ms max calm |
+| Load | settled to ~1.0 after mass-boot spike |
+
+Cost read: ~$105/mo node ÷ 200 slots ≈ **$0.53/slot** vs $5.57/slot on the
+swap-less pool → at-scale compute share $0.23 → ~$0.03; floor approaches
+**~$0.10–0.12/agent** with disk now the dominant term.
+
+Caveats before productionizing: pods ran without PVCs; agents were idle
+(mixed-load thrash threshold NOT probed — we stopped at 200-healthy, the
+CPU-request budget, not a swap failure); Terraform provider doesn't expose
+`swapConfig` yet (experiment pool lives in `hack/swap-experiment/`).
+Productionizing = swap-enabled Spot pool + requests ~100m/256Mi + a
+mixed-load density sweep to find the real thrash cliff.
