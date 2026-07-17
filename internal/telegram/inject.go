@@ -9,7 +9,6 @@
 package telegram
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"regexp"
@@ -18,8 +17,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes/scheme"
-	"k8s.io/client-go/tools/remotecommand"
 
 	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
 )
@@ -37,11 +34,6 @@ func ValidateToken(tok string) error {
 // allowedUsersRe: comma-separated telegram user IDs or @usernames.
 var allowedUsersRe = regexp.MustCompile(`^[@A-Za-z0-9_,]*$`)
 
-// ExecRunner abstracts pod exec for tests.
-type ExecRunner interface {
-	Exec(ctx context.Context, namespace, pod, container string, command []string) (stdout, stderr string, err error)
-}
-
 // SecretName returns the per-user Telegram secret name.
 func SecretName(userID string) string { return "hermes-user-" + userID + "-telegram" }
 
@@ -50,7 +42,7 @@ type Injector struct {
 	Namespace string
 	Resolver  *sandbox.Resolver
 	Lifecycle *sandbox.Lifecycle
-	Exec      ExecRunner
+	Exec      sandbox.ExecRunner
 	// WakeTimeout bounds the implicit resume when the user is suspended.
 	WakeTimeout time.Duration
 }
@@ -76,7 +68,7 @@ func (i *Injector) SetToken(ctx context.Context, userID, token, allowedUsers str
 
 	// 2. Agent must be running to receive the injection.
 	if ua.State != sandbox.StateReady {
-		if ua, err = i.Lifecycle.Resume(ctx, userID, i.WakeTimeout); err != nil {
+		if ua, err = i.Lifecycle.Resume(ctx, userID, i.WakeTimeout, "api"); err != nil {
 			return fmt.Errorf("resume before injection: %w", err)
 		}
 	}
@@ -88,7 +80,7 @@ func (i *Injector) SetToken(ctx context.Context, userID, token, allowedUsers str
 printf 'TELEGRAM_BOT_TOKEN=%%s\nTELEGRAM_ALLOWED_USERS=%%s\n' %q %q >> /opt/data/.env.tmp
 mv /opt/data/.env.tmp /opt/data/.env
 chmod 600 /opt/data/.env`, token, allowedUsers)
-	pod, err := i.podName(ctx, ua)
+	pod, err := i.Resolver.PodName(ctx, ua)
 	if err != nil {
 		return err
 	}
@@ -115,7 +107,7 @@ func (i *Injector) RemoveToken(ctx context.Context, userID string) error {
 		return fmt.Errorf("delete secret: %w", err)
 	}
 	if ua.State == sandbox.StateReady {
-		pod, perr := i.podName(ctx, ua)
+		pod, perr := i.Resolver.PodName(ctx, ua)
 		if perr == nil {
 			script := `grep -v '^TELEGRAM_BOT_TOKEN=' /opt/data/.env 2>/dev/null | grep -v '^TELEGRAM_ALLOWED_USERS=' > /opt/data/.env.tmp || true
 mv /opt/data/.env.tmp /opt/data/.env`
@@ -180,40 +172,4 @@ func (i *Injector) upsertSecret(ctx context.Context, userID, token, allowedUsers
 		return fmt.Errorf("upsert secret: %w", err)
 	}
 	return nil
-}
-
-// podName resolves the actual pod: the sandbox tracks warm-adopted pods via
-// annotation; recreated (post-resume) pods are named after the sandbox.
-func (i *Injector) podName(ctx context.Context, ua *sandbox.UserAgent) (string, error) {
-	sb, err := i.Clients.Core.AgentsV1beta1().Sandboxes(i.Namespace).Get(ctx, ua.SandboxName, metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("get sandbox: %w", err)
-	}
-	if name := sb.Annotations["agents.x-k8s.io/pod-name"]; name != "" {
-		return name, nil
-	}
-	return ua.SandboxName, nil
-}
-
-// SPDYExecRunner is the real pod-exec implementation.
-type SPDYExecRunner struct {
-	Clients *sandbox.Clients
-}
-
-func (s *SPDYExecRunner) Exec(ctx context.Context, namespace, pod, container string, command []string) (string, string, error) {
-	req := s.Clients.K8s.CoreV1().RESTClient().Post().
-		Resource("pods").Namespace(namespace).Name(pod).SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: container,
-			Command:   command,
-			Stdout:    true,
-			Stderr:    true,
-		}, scheme.ParameterCodec)
-	exec, err := remotecommand.NewSPDYExecutor(s.Clients.Rest, "POST", req.URL())
-	if err != nil {
-		return "", "", err
-	}
-	var stdout, stderr bytes.Buffer
-	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{Stdout: &stdout, Stderr: &stderr})
-	return stdout.String(), stderr.String(), err
 }

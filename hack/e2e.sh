@@ -99,13 +99,52 @@ TG=$(curl -s -H "$A" -X DELETE "http://$GW/api/v1/users/$USER_ID/telegram-token"
 echo "$TG" | jq -e '.suspendExempt == false' >/dev/null || fail "telegram remove failed: $TG"
 pass "telegram token inject + remove (secret, exemption)"
 
-# 9. Idempotent replay: no token leak
+# 9. Cron-aware wake: a scheduled job resumes a suspended sandbox with ZERO
+# user traffic (docs/cron-wake-design.md). Uses a recurring --no-agent script
+# job so no LLM key is needed.
+SB=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .sandboxName)
+POD=$(kubectl -n "$NS" get sandbox "$SB" -o jsonpath='{.metadata.annotations.agents\.x-k8s\.io/pod-name}')
+POD=${POD:-$SB}
+kubectl -n "$NS" exec "$POD" -- sh -c \
+  'mkdir -p /opt/data/scripts && printf "#!/bin/bash\ndate -u >> /opt/data/cron-marker\necho ran\n" > /opt/data/scripts/marker.sh'
+kubectl -n "$NS" exec "$POD" -- hermes cron create 'every 2m' --name e2e-marker --script marker.sh --no-agent >/dev/null
+SUSPENDED=""
+for _ in $(seq 1 30); do
+  STATE=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .state)
+  [ "$STATE" = "Suspended" ] && SUSPENDED=1 && break
+  sleep 5
+done
+[ -n "$SUSPENDED" ] || fail "cron: user did not idle-suspend (state=$STATE)"
+NEXT=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r '.nextCronWake // empty')
+[ -n "$NEXT" ] || fail "cron: suspend did not capture nextCronWake"
+CRON_WOKE=""
+for _ in $(seq 1 50); do  # job due within 2m; waker sweeps every 30s
+  RESP=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID")
+  if [ "$(echo "$RESP" | jq -r .state)" = "Ready" ] && \
+     [ "$(echo "$RESP" | jq -r .lastWakeReason)" = "cron" ]; then CRON_WOKE=1; break; fi
+  sleep 5
+done
+[ -n "$CRON_WOKE" ] || fail "cron: waker did not resume the sandbox (last: $RESP)"
+# The waker may resume up to one sweep-interval EARLY (before the job is
+# due), in which case the immediate `cron tick` is a no-op and the in-pod
+# 60s ticker fires the job at/after due time — poll rather than sleep.
+MARKED=""
+for _ in $(seq 1 30); do
+  if kubectl -n "$NS" exec "$SB" -- test -s /opt/data/cron-marker >/dev/null 2>&1; then MARKED=1; break; fi
+  sleep 5
+done
+[ -n "$MARKED" ] || fail "cron: marker not written by scheduled job"
+kubectl -n "$NS" exec "$SB" -- hermes cron remove e2e-marker >/dev/null 2>&1 || \
+  kubectl -n "$NS" exec "$SB" -- sh -c 'rm -f /opt/data/cron/jobs.json' >/dev/null 2>&1 || true
+pass "cron wake: captured at suspend ($NEXT), waker resumed (reason=cron), job ran with no user traffic"
+
+# 10. Idempotent replay: no token leak
 REPLAY=$(curl -s -H "$A" -X POST "http://$GW/api/v1/users" -d "{\"userId\":\"$USER_ID\"}")
 TOK2=$(echo "$REPLAY" | jq -r '.token // empty')
 [ -z "$TOK2" ] || fail "replay leaked a token"
 pass "idempotent replay does not re-issue tokens"
 
-# 10. Cascade delete
+# 11. Cascade delete
 SB=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .sandboxName)
 curl -s -H "$A" -X DELETE "http://$GW/api/v1/users/$USER_ID" >/dev/null
 DELETED=""

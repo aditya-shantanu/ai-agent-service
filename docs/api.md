@@ -12,7 +12,7 @@ Two surfaces on one port (default `:8080`):
 |---|---|
 | `POST /api/v1/users` `{"userId":"alice"}` | Provision. Waits for warm adoption + Ready. `201` with one-time `token`; `200` without token on idempotent replay. |
 | `GET /api/v1/users` | List users with derived state. |
-| `GET /api/v1/users/{id}` | `state`: `Provisioning · Ready · Suspending · Suspended · Waking`, `sandboxName`, `serviceFQDN`, `suspendExempt`. |
+| `GET /api/v1/users/{id}` | `state`: `Provisioning · Ready · Suspending · Suspended · Waking`, `sandboxName`, `serviceFQDN`, `suspendExempt`, `nextCronWake` (set while suspended with a pending Hermes cron job), `lastWakeReason` (`connect·api·cron`). |
 | `POST /api/v1/users/{id}/suspend` | Explicit suspend (works even for exempt users). |
 | `POST /api/v1/users/{id}/resume` | Resume; holds until Ready (`200`) or returns `202` if not Ready within `wakeTimeout`. |
 | `POST /api/v1/users/{id}/token` | Rotate the user token (returned once). |

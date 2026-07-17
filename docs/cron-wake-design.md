@@ -1,6 +1,6 @@
 # Design: cron-aware wake (scheduled jobs vs suspended sandboxes)
 
-**Status: proposed.** Problem: Hermes runs its cron scheduler inside the
+**Status: implemented (Phase 1) — 2026-07-17.** Validated on kind: e2e check #9 proves a scheduled job resumes a suspended sandbox with zero user traffic. Problem: Hermes runs its cron scheduler inside the
 sandbox (60s tick in the messaging-gateway process). A suspended sandbox has
 no pod, so user-configured and internal cron jobs silently miss until the
 user happens to reconnect. Suspend-exempting cron users (like Telegram users)
@@ -48,7 +48,7 @@ v2 architecture — nothing here touches the data path):
    idle sweeper): list claims with `next-cron-wake <= now + 30s` whose state
    is `Suspended`/`Suspending` → `Resume()` → clear `next-cron-wake` → stamp
    `hermes.ai-agent-service.dev/cron-grace-until = now + cronGrace`
-   (default **5m**, configurable `cron.grace`) → exec `hermes cron tick`
+   (default **2m**, configurable `cron.grace`) → exec `hermes cron tick`
    in the fresh pod for immediate, deterministic firing (the built-in 60s
    ticker + boot catch-up remain the safety net if the exec fails).
 
@@ -85,7 +85,7 @@ sequenceDiagram
 |---|---|
 | User adds/edits a job while running | Irrelevant until suspend; capture happens at suspend time, always fresh. |
 | User adds a job while suspended | Impossible — any interaction (proxy/API) wakes the pod first. |
-| Job runs longer than the grace window | v1 limitation: sweeper may suspend mid-run; Hermes flags the session `restart_interrupted` and resumes it on next wake. Mitigation: raise `cron.grace`. v2: probe in-pod activity (e.g. running agent session) before suspending. |
+| Job runs longer than the grace window | v1 limitation: sweeper may suspend mid-run; Hermes flags the session `restart_interrupted` and resumes it on next wake. Mitigation: raise `cron.grace` (default 2m). v2: probe in-pod activity (e.g. running agent session) before suspending. |
 | Waker misses the time (gateway restart/downtime) | Harmless — on the next wake from ANY cause, Hermes catch-up fires the job once. The annotation persists, so the waker fires late rather than never. |
 | Telegram users | Already suspend-exempt; their in-pod cron just runs. This design only matters for suspendable users. |
 | One-shot jobs (`run_at`) | Same jobs.json shape; earliest-time logic covers them (ONESHOT_GRACE in Hermes tolerates modest lateness). |
@@ -106,7 +106,7 @@ while the interface can change without deprecation.
 ## Cost model
 
 A user with one daily job costs ~`grace + idle timeout` of runtime per day
-(~6 min with defaults) instead of 24h always-on: the cost saving survives.
+(~3 min with defaults) instead of 24h always-on: the cost saving survives.
 
 ## Implementation checklist (when approved)
 

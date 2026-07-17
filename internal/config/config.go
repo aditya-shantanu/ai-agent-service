@@ -31,6 +31,9 @@ type Config struct {
 	WakeTimeout time.Duration
 	// IdleTimeout after which a user with no activity is suspended.
 	IdleTimeout time.Duration
+	// CronGrace protects a cron-woken sandbox from idle suspension long
+	// enough for the scheduled job to start (and usually finish).
+	CronGrace time.Duration
 	// SuspendTelegramUsers, when false (default), exempts users with a
 	// Telegram token from idle suspension (their bot long-polls in-pod).
 	SuspendTelegramUsers bool
@@ -48,6 +51,7 @@ func FromEnv() (*Config, error) {
 		ProvisionTimeout:     durOr("PROVISION_TIMEOUT", 120*time.Second),
 		WakeTimeout:          durOr("WAKE_TIMEOUT", 60*time.Second),
 		IdleTimeout:          durOr("IDLE_TIMEOUT", time.Minute),
+		CronGrace:            durOr("CRON_GRACE", 2*time.Minute),
 		SuspendTelegramUsers: os.Getenv("SUSPEND_TELEGRAM_USERS") == "true",
 	}
 	if c.AdminToken == "" {

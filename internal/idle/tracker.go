@@ -120,6 +120,11 @@ func (s *Suspender) sweep(ctx context.Context) {
 		if ua.Exempt && !s.SuspendTelegramUsers {
 			continue
 		}
+		// Cron-woken sandboxes get a grace window to run their job
+		// (docs/cron-wake-design.md); the sweeper must not race it.
+		if !ua.CronGraceUntil.IsZero() && s.Tracker.now().Before(ua.CronGraceUntil) {
+			continue
+		}
 		idleFor, inflight, seen := s.Tracker.snapshot(ua.UserID)
 		if !seen {
 			// First time we see this user (e.g. gateway restart): start the

@@ -41,20 +41,28 @@ type userResponse struct {
 	SandboxName string `json:"sandboxName,omitempty"`
 	ServiceFQDN string `json:"serviceFQDN,omitempty"`
 	Exempt      bool   `json:"suspendExempt"`
+	// Cron-wake observability (docs/cron-wake-design.md).
+	NextCronWake   string `json:"nextCronWake,omitempty"`
+	LastWakeReason string `json:"lastWakeReason,omitempty"`
 	// Token is only set on initial creation and rotation.
 	Token string `json:"token,omitempty"`
 	Note  string `json:"note,omitempty"`
 }
 
 func toResponse(ua *sandbox.UserAgent) userResponse {
-	return userResponse{
-		UserID:      ua.UserID,
-		State:       string(ua.State),
-		Claim:       ua.ClaimName,
-		SandboxName: ua.SandboxName,
-		ServiceFQDN: ua.ServiceFQDN,
-		Exempt:      ua.Exempt,
+	resp := userResponse{
+		UserID:         ua.UserID,
+		State:          string(ua.State),
+		Claim:          ua.ClaimName,
+		SandboxName:    ua.SandboxName,
+		ServiceFQDN:    ua.ServiceFQDN,
+		Exempt:         ua.Exempt,
+		LastWakeReason: ua.LastWakeReason,
 	}
+	if !ua.NextCronWake.IsZero() {
+		resp.NextCronWake = ua.NextCronWake.UTC().Format(time.RFC3339)
+	}
+	return resp
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -169,7 +177,7 @@ func (h *Handlers) Suspend(w http.ResponseWriter, r *http.Request) {
 
 // Resume handles POST /api/v1/users/{id}/resume.
 func (h *Handlers) Resume(w http.ResponseWriter, r *http.Request) {
-	ua, err := h.Lifecycle.Resume(r.Context(), r.PathValue("id"), h.WakeTimeout)
+	ua, err := h.Lifecycle.Resume(r.Context(), r.PathValue("id"), h.WakeTimeout, "api")
 	if err != nil {
 		if ua != nil {
 			// Timed out but not fatal — report state.

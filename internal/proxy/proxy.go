@@ -85,7 +85,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Wake-on-connect: hold the request while the sandbox resumes.
 	if ua.State != sandbox.StateReady {
-		ua, err = p.Lifecycle.Resume(r.Context(), userID, p.WakeTimeout)
+		ua, err = p.Lifecycle.Resume(r.Context(), userID, p.WakeTimeout, "connect")
 		if err != nil || ua == nil || ua.State != sandbox.StateReady {
 			slog.Warn("wake-on-connect timeout", "user", userID, "err", err)
 			w.Header().Set("Retry-After", "10")

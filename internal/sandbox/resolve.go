@@ -3,6 +3,7 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,6 +35,11 @@ type UserAgent struct {
 	SuspendState string // reason detail for debugging
 	Exempt       bool   // suspend-exempt (telegram users)
 	TokenSHA256  string // hex hash of the user's bearer token
+
+	// Cron-wake state (docs/cron-wake-design.md); zero values = unset.
+	NextCronWake   time.Time
+	CronGraceUntil time.Time
+	LastWakeReason string
 }
 
 // ErrUserNotFound is returned when no claim exists for the user.
@@ -60,10 +66,21 @@ func (r *Resolver) Resolve(ctx context.Context, userID string) (*UserAgent, erro
 
 func (r *Resolver) resolveFromClaim(ctx context.Context, userID string, claim *extv1beta1.SandboxClaim) (*UserAgent, error) {
 	ua := &UserAgent{
-		UserID:      userID,
-		ClaimName:   claim.Name,
-		TokenSHA256: claim.Annotations[AnnotationTokenSHA256],
-		Exempt:      claim.Annotations[AnnotationSuspendExempt] == "true",
+		UserID:         userID,
+		ClaimName:      claim.Name,
+		TokenSHA256:    claim.Annotations[AnnotationTokenSHA256],
+		Exempt:         claim.Annotations[AnnotationSuspendExempt] == "true",
+		LastWakeReason: claim.Annotations[AnnotationLastWakeReason],
+	}
+	if v := claim.Annotations[AnnotationNextCronWake]; v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			ua.NextCronWake = t
+		}
+	}
+	if v := claim.Annotations[AnnotationCronGraceUntil]; v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			ua.CronGraceUntil = t
+		}
 	}
 
 	ua.SandboxName = claim.Status.SandboxStatus.Name

@@ -248,7 +248,7 @@ func TestSuspendAndResume(t *testing.T) {
 		upd.ResourceVersion = cur.ResourceVersion
 		_, _ = lc.Clients.Core.AgentsV1beta1().Sandboxes(ns).Update(context.Background(), upd, metav1.UpdateOptions{})
 	}()
-	ua, err = lc.Resume(ctx, "dave", 5*time.Second)
+	ua, err = lc.Resume(ctx, "dave", 5*time.Second, "api")
 	if err != nil {
 		t.Fatal(err)
 	}

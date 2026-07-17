@@ -83,6 +83,8 @@ spec:
               value: {{ .Values.idle.timeout | quote }}
             - name: SUSPEND_TELEGRAM_USERS
               value: {{ .Values.idle.suspendTelegramUsers | quote }}
+            - name: CRON_GRACE
+              value: {{ .Values.cron.grace | quote }}
             - name: PROVISION_TIMEOUT
               value: {{ .Values.gateway.provisionTimeout | quote }}
             - name: WAKE_TIMEOUT

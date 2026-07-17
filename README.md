@@ -254,6 +254,7 @@ tab closes.
 | M4 Proxy + wake + idle suspend | ✅ wake hold ~11s observed on kind |
 | M5 Telegram token injection | ✅ inject/remove + suspend exemption |
 | M6 Helm chart + e2e | ✅ `make e2e` — 10/10 |
+| M8 Cron-aware wake | ✅ e2e check #9 — scheduled job wakes a suspended sandbox, zero user traffic |
 | M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e 10/10, wake ~20s, NetworkPolicy enforced |
 
 ## Design decisions & caveats
@@ -342,24 +343,33 @@ Every load-bearing decision lives here. If you change one, update this list.
     claim env is rejected by policy and template env is shared. The write
     lands on the PVC ⇒ survives suspend/resume without re-injection. Inputs
     are format-validated before touching a shell.
-16. **Gateway restart forgives idleness**: the in-memory activity map dies
+16. **Cron jobs wake suspended sandboxes** (`docs/cron-wake-design.md`):
+    at suspend time the gateway reads the pod's `cron/jobs.json` (Hermes
+    precomputes `next_run_at`) onto a claim annotation; a 30s waker loop
+    resumes due sandboxes, execs `hermes cron tick`, and grants a 2m grace
+    window the idle sweeper honors. One-shot jobs wake exactly once;
+    recurring jobs re-capture at every suspend. Hermes' boot catch-up makes
+    late wakes harmless (job fires once, no burst). Wake provenance is
+    observable: `nextCronWake` + `lastWakeReason` (`connect|api|cron`) in
+    the user status API.
+17. **Gateway restart forgives idleness**: the in-memory activity map dies
     with the process, so after a gateway restart every user gets a fresh
     idle window (worst case: one extra `idle.timeout` of runtime). Suspended
     users stay suspended.
 
 ### Packaging
 
-17. **agent-sandbox is a documented prerequisite**, installed from its pinned
+18. **agent-sandbox is a documented prerequisite**, installed from its pinned
     release manifest (`sandbox-with-extensions.yaml`, v0.5.2 — `make
     sandbox-install`) — not vendored as a subchart (upstream chart is
     unpublished and drift-prone). Go module pin matches: `sigs.k8s.io/agent-sandbox v0.5.2`.
-18. **Helm chart** (`charts/hermes-service`) carries gateway, SandboxTemplate,
+19. **Helm chart** (`charts/hermes-service`) carries gateway, SandboxTemplate,
     WarmPool, RBAC and secrets. Platform secrets are **generated on first
     install and preserved across upgrades** (`lookup`-based); bring your own
     via `secrets.*.existingSecret`. `storageClassName: ""` = cluster default
     (works on kind and GKE). Provider keys go in one Secret injected via
     `envFrom` — add any `*_API_KEY` without touching the chart.
-19. Images for GKE live in Artifact Registry in `gke-ai-eco-dev`
+20. Images for GKE live in Artifact Registry in `gke-ai-eco-dev`
     (`make images-push` builds amd64 and mirrors the pinned Hermes image).
 
 ## Future work
@@ -373,9 +383,13 @@ Designed and researched, deliberately not built yet:
   only as self-hosted Envoy behind an L4 passthrough NLB — GKE's managed
   Gateway is disqualified (Service Extensions timeout caps; no dynamic
   upstream steering). Four spikes remain before implementation.
-- **Cron phase 2** (`docs/cron-wake-design.md`): a Hermes `CronScheduler`
-  provider plugin pushing schedule changes to the platform in real time,
-  once upstream stabilizes the interface.
+- **Cron phase 2** (`docs/cron-wake-design.md`): Hermes' pluggable
+  `CronScheduler` provider interface is today marked EXPERIMENTAL upstream
+  (one consumer; hooks like `on_jobs_changed`/`fire_due` not shipped).
+  **Once it stabilizes, adopt it directly**: a provider plugin (selected via
+  `cron.provider`) pushing schedule changes to the platform in real time
+  would replace our exec-read-at-suspend capture entirely — it is the
+  upstream-blessed integration for scale-to-zero platforms like this one.
 - TLS/domain in front of the gateway on GKE; gVisor node pool for sandbox
   hardening; webhook-mode Telegram (suspendable bot users); gateway
   scale-out.

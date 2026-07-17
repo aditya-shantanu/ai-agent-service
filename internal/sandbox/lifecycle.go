@@ -2,7 +2,9 @@ package sandbox
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -20,10 +22,29 @@ type Lifecycle struct {
 	Clients   *Clients
 	Namespace string
 	Resolver  *Resolver
+	// Exec enables suspend-time cron capture and post-wake `cron tick`
+	// (nil = cron-wake support disabled, e.g. in tests).
+	Exec ExecRunner
 
 	// wakeMu serializes wake attempts per user so a thundering herd of
 	// requests produces exactly one resume patch + wait.
 	wakeMu sync.Map // userID -> *sync.Mutex
+}
+
+// SetClaimAnnotations merge-patches annotations on the user's claim;
+// a nil value removes the key.
+func (l *Lifecycle) SetClaimAnnotations(ctx context.Context, userID string, anns map[string]*string) error {
+	body := map[string]any{"metadata": map[string]any{"annotations": anns}}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	_, err = l.Clients.Ext.ExtensionsV1beta1().SandboxClaims(l.Namespace).
+		Patch(ctx, ClaimName(userID), types.MergePatchType, raw, metav1.PatchOptions{})
+	if err != nil {
+		return fmt.Errorf("patch claim annotations: %w", err)
+	}
+	return nil
 }
 
 func (l *Lifecycle) userMutex(userID string) *sync.Mutex {
@@ -54,6 +75,14 @@ func (l *Lifecycle) Suspend(ctx context.Context, userID string) (*UserAgent, err
 	if ua.State == StateSuspended || ua.State == StateSuspending {
 		return ua, nil
 	}
+	// Best-effort cron capture BEFORE the pod goes away, so the cron waker
+	// knows when to resume this user. Failure never blocks suspension
+	// (design: suspend-anyway; Hermes boot catch-up bounds the damage).
+	if ua.State == StateReady {
+		if err := l.CaptureCronWake(ctx, ua); err != nil {
+			slog.Warn("cron capture failed; suspending anyway", "user", userID, "err", err)
+		}
+	}
 	if err := l.setOperatingMode(ctx, ua.SandboxName, sandboxv1beta1.SandboxOperatingModeSuspended); err != nil {
 		return nil, err
 	}
@@ -63,8 +92,9 @@ func (l *Lifecycle) Suspend(ctx context.Context, userID string) (*UserAgent, err
 // Resume requests the user's sandbox to run and waits (up to timeout) for
 // Ready. Safe to call in any state — flipping operatingMode back to Running
 // mid-suspend is supported by the controller (never wait for Suspended=True
-// before resuming; README decision 13).
-func (l *Lifecycle) Resume(ctx context.Context, userID string, timeout time.Duration) (*UserAgent, error) {
+// before resuming; README decision 13). reason ("connect", "api", "cron")
+// is recorded on the claim when a wake actually happens.
+func (l *Lifecycle) Resume(ctx context.Context, userID string, timeout time.Duration, reason string) (*UserAgent, error) {
 	mu := l.userMutex(userID)
 	mu.Lock()
 	defer mu.Unlock()
@@ -82,6 +112,11 @@ func (l *Lifecycle) Resume(ctx context.Context, userID string, timeout time.Dura
 	if ua.State == StateSuspended || ua.State == StateSuspending {
 		if err := l.setOperatingMode(ctx, ua.SandboxName, sandboxv1beta1.SandboxOperatingModeRunning); err != nil {
 			return nil, err
+		}
+		if reason != "" {
+			if err := l.SetClaimAnnotations(ctx, userID, map[string]*string{AnnotationLastWakeReason: &reason}); err != nil {
+				slog.Warn("recording wake reason failed", "user", userID, "err", err)
+			}
 		}
 	}
 	return l.WaitReady(ctx, userID, timeout)
@@ -118,22 +153,10 @@ func (l *Lifecycle) SetSuspendExempt(ctx context.Context, userID string, exempt 
 	if exempt {
 		val = "true"
 	}
-	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%q}}}`, AnnotationSuspendExempt, val)
-	_, err := l.Clients.Ext.ExtensionsV1beta1().SandboxClaims(l.Namespace).
-		Patch(ctx, ClaimName(userID), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
-	if err != nil {
-		return fmt.Errorf("patch claim suspend-exempt: %w", err)
-	}
-	return nil
+	return l.SetClaimAnnotations(ctx, userID, map[string]*string{AnnotationSuspendExempt: &val})
 }
 
 // SetTokenHash updates the stored bearer-token hash (token rotation).
 func (l *Lifecycle) SetTokenHash(ctx context.Context, userID, sha256hex string) error {
-	patch := fmt.Sprintf(`{"metadata":{"annotations":{%q:%q}}}`, AnnotationTokenSHA256, sha256hex)
-	_, err := l.Clients.Ext.ExtensionsV1beta1().SandboxClaims(l.Namespace).
-		Patch(ctx, ClaimName(userID), types.MergePatchType, []byte(patch), metav1.PatchOptions{})
-	if err != nil {
-		return fmt.Errorf("patch claim token hash: %w", err)
-	}
-	return nil
+	return l.SetClaimAnnotations(ctx, userID, map[string]*string{AnnotationTokenSHA256: &sha256hex})
 }

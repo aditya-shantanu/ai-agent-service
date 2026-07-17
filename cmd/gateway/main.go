@@ -47,14 +47,20 @@ func main() {
 		WarmPoolName: cfg.WarmPoolName,
 		Resolver:     resolver,
 	}
-	lifecycle := &sandbox.Lifecycle{Clients: clients, Namespace: cfg.Namespace, Resolver: resolver}
+	execRunner := &sandbox.SPDYExecRunner{Clients: clients}
+	lifecycle := &sandbox.Lifecycle{
+		Clients:   clients,
+		Namespace: cfg.Namespace,
+		Resolver:  resolver,
+		Exec:      execRunner,
+	}
 
 	injector := &telegram.Injector{
 		Clients:     clients,
 		Namespace:   cfg.Namespace,
 		Resolver:    resolver,
 		Lifecycle:   lifecycle,
-		Exec:        &telegram.SPDYExecRunner{Clients: clients},
+		Exec:        execRunner,
 		WakeTimeout: cfg.WakeTimeout,
 	}
 
@@ -87,6 +93,14 @@ func main() {
 		SuspendTelegramUsers: cfg.SuspendTelegramUsers,
 	}
 	go suspender.Run(context.Background())
+
+	cronWaker := &idle.CronWaker{
+		Resolver:    resolver,
+		Lifecycle:   lifecycle,
+		Grace:       cfg.CronGrace,
+		WakeTimeout: cfg.WakeTimeout,
+	}
+	go cronWaker.Run(context.Background())
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
