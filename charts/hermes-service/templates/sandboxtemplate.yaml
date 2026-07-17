@@ -64,6 +64,26 @@ spec:
         runAsGroup: 10000
         fsGroup: 10000
         runAsNonRoot: true
+      initContainers:
+        # Pre-seed a minimal config.yaml BEFORE Hermes' own first-boot seed
+        # (which only copies its example if the file is absent): sets the
+        # platform default model so chat works with the provided provider
+        # key out of the box. Existing configs are never touched.
+        - name: seed-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              if [ ! -f /opt/data/config.yaml ]; then
+                printf 'model:\n  default: "%s"\n' "{{ .Values.hermes.defaultModel }}" > /opt/data/config.yaml
+              fi
+          securityContext:
+            runAsUser: 10000
+            runAsGroup: 10000
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
       containers:
         - name: hermes
           image: {{ .Values.hermes.image }}

@@ -28,6 +28,10 @@ cron:
 hermes:
   image: nousresearch/hermes-agent:v2026.7.7.2
   imagePullPolicy: IfNotPresent
+  # Default LLM model seeded into each sandbox's config.yaml on first boot
+  # (Hermes' own seed defaults to an Anthropic model, which 404s when only
+  # e.g. GEMINI_API_KEY is provided). provider/model form, see Hermes docs.
+  defaultModel: google/gemini-flash-latest
 
 warmPool:
   replicas: 5

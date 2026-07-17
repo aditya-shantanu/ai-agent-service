@@ -299,10 +299,22 @@ then two autonomous cron wakes, zero user traffic):
   md5 checksums after recreation. Everything under `/opt/data` (PVC) is
   durable; anything outside it dies with the pod, by design.
 
-**Known gap**: a real LLM conversation across a suspend/resume cycle (and
-Hermes actively *loading* a planted skill) has not been exercised — the test
-clusters carry only a placeholder provider key. Ready to run once a real
-Gemini/OpenAI key is provisioned.
+### Real-LLM validation (2026-07-17, Gemini via .env flow)
+
+With a real `GEMINI_API_KEY` loaded via `make set-provider-key`:
+
+- **Live chat through the full stack** (proxy → Hermes API server → Gemini).
+- **Agent memory survives the kill**: the agent saved "MOONBEAM-77" to its
+  persistent memory (verified on-PVC in `memories/MEMORY.md`), the pod was
+  suspended and deleted, and a single chat request against the dead sandbox
+  woke it and answered **MOONBEAM-77 in 15 seconds total** (wake + LLM).
+- **Skills are actively LOADED, not just stored**: a hand-planted skill file
+  was found and used by the recreated pod's agent (answered the probe
+  codeword PLUM-PUDDING-42).
+- Gap found and fixed during this validation: Hermes' seeded config defaults
+  to an Anthropic model (404s on Gemini-only deployments) — the chart now
+  pre-seeds `hermes.defaultModel` (default `google/gemini-flash-latest`) via
+  an init container; a fresh user chats with zero manual setup.
 
 ## Design decisions & caveats
 
