@@ -7,6 +7,39 @@ provisioned in ~2 seconds from a warm pool and **suspended when idle** to save
 cost — with state (conversations, memory, skills) surviving on a PVC and a
 transparent wake-on-connect when the user returns.
 
+## Why Hermes (and not OpenClaw)?
+
+Both are MIT-licensed, single-user personal agents with one long-lived
+gateway process and all durable state under a single relocatable directory —
+either *works* in a suspend/resume, per-user-pod platform. Hermes won on how
+deliberately it handles being killed, which is this platform's whole premise:
+
+1. **Restart tolerance is a designed-in feature.** Hermes flags in-flight
+   sessions as `restart_interrupted`, auto-resumes them, and notifies the
+   user; sessions live in SQLite committed per turn. Our suspend cycle (pod
+   deleted → PVC reattached) is just a restart to Hermes. OpenClaw survives
+   restarts via its state dir too, but documents no in-flight recovery.
+2. **OpenClaw's rapid-restart "safe mode" is actively hostile to an automated
+   suspend/resume loop**: after rapid unclean restarts it deliberately comes
+   back with messaging channels suppressed — a few bad cycles and a user's
+   channels silently stop reconnecting. Hermes has no such failure mode.
+3. **Sleep-when-idle is an endorsed Hermes deployment pattern** (its docs
+   recommend webhook mode for platforms that auto-wake suspended machines),
+   and long-poll platforms like Telegram queue server-side while suspended,
+   so messages catch up on resume. OpenClaw assumes 24/7 uptime — its cron
+   and webhook channels silently miss events while down.
+4. **The container contract is fully env-driven** (dashboard basic-auth +
+   HMAC session secret, OpenAI-compatible API key, gateway bootstrap state —
+   see `docs/hermes-image.md`), which is exactly what warm pools require:
+   identical pods, personalized only by whose PVC and token map to them. As
+   a bonus, dashboard sessions survive suspend/resume (validated), so users
+   don't get logged out when their pod is recycled.
+5. **Multi-surface out of the box**: web dashboard + OpenAI-compatible API +
+   20+ messaging platforms from one process, all state on one volume.
+
+OpenClaw remains a fine self-hosted personal assistant; it's the wrong
+*tenant* for a platform that kills pods on idle by design.
+
 ## Architecture
 
 ```mermaid
@@ -127,25 +160,79 @@ sequenceDiagram
     Note over GW: idle sweep now skips alice —<br/>her long-polling bot must stay up
 ```
 
-## Quick start
+## Two modes: local development vs production
+
+| | **Local mode (kind)** | **Production mode (GKE)** |
+|---|---|---|
+| One command | `make dev` | `make deploy-gke` |
+| Cluster | kind `hermes-svc` (created for you) | GKE `hermes-svc` in `gke-ai-eco-dev` (create once — `docs/gke.md`) |
+| Values | `values-kind.yaml` | `values-gke.yaml` |
+| Idle suspend | **1m** (default) | **1m** (default) — deliberately short for fast test iteration; raise `idle.timeout` for real users |
+| Warm pool | 2 spares | 5 spares |
+| Images | built locally, `kind load`ed | pushed to Artifact Registry (`make images-push`) |
+| Exposure | `kubectl port-forward` | LoadBalancer (put TLS/Ingress in front for real traffic) |
+| NetworkPolicy | enforced (kube-network-policies) | enforced (Dataplane V2) |
 
 ```sh
-# 0. Prerequisites: a cluster + agent-sandbox CRDs (once per cluster)
-make sandbox-install                       # pinned v0.5.2 release manifest
+# LOCAL: everything from zero to a working platform
+make dev                    # kind cluster + agent-sandbox + helm install
+make e2e                    # verify: 10-check suite
 
-# 1. Deploy (kind dev loop)
-make kind-up deploy-kind                   # cluster + helm install (idle=60s)
-
-# 2. Full e2e
-make e2e                                   # 10 checks, ~4 minutes
-
-# Any other cluster
-helm upgrade --install hermes-service charts/hermes-service -n hermes-users --create-namespace
+# PRODUCTION: after the one-time GKE setup in docs/gke.md
+make gke-credentials        # point kubectl at the GKE cluster
+make deploy-gke             # push images + install/upgrade
 ```
 
-Then follow the printed NOTES: grab the admin token, add a real LLM provider
-key to `hermes-provider-keys`, create users, chat. API reference: `docs/api.md`.
-GKE deployment: `docs/gke.md`.
+Both modes end with the Helm NOTES walkthrough: grab the admin token, add a
+real LLM provider key to `hermes-provider-keys`, create users, chat.
+API reference: `docs/api.md`.
+
+## Testing end-to-end
+
+Three layers, fastest to slowest:
+
+```sh
+make test              # unit tests (fake clientsets, httptest) — seconds
+make e2e               # full-loop platform test — ~4 min on kind
+make simulate-users    # multi-user emulation — ~5 min on kind
+```
+
+**`make e2e`** (`hack/e2e.sh`) drives one user through the entire lifecycle
+via the public API only: provision (asserts warm adoption + speed) → proxy
+auth negatives → dashboard login through the proxy → OpenAI-compatible call →
+idle suspension (asserts pod deleted, PVC retained) → wake-on-connect (asserts
+one request transparently resumes) → session survival across suspend/resume →
+Telegram inject/remove → idempotent replay → cascade delete. It works against
+either mode (`NS=hermes-users hack/e2e.sh`), but the idle phase needs the
+1m default timeout, so it runs unmodified against both kind and GKE.
+
+### Emulating multiple users
+
+**`make simulate-users`** (`hack/simulate-users.sh`, `USERS=n` to scale) is
+the multi-tenancy demo. It emulates n independent users from your terminal:
+
+1. **Parallel signups** — n users created concurrently; you see which got a
+   pre-warmed sandbox (~2s, `hermes-pool-*` from the pool) and, once the pool
+   drains (kind keeps 2 spares), which took the cold path — plus the pool
+   replenishing behind them.
+2. **Concurrent traffic** — every user simultaneously calls their own agent
+   through the proxy with their own token.
+3. **Cross-user isolation** — user 1's token against user 2's agent: 401.
+4. **Differential idling** — user 1 keeps a heartbeat going while the others
+   go quiet; after the idle window only user 1 is still `Ready`, the rest are
+   `Suspended` (pods gone, PVCs kept).
+5. **Wake-on-connect** — user 2 sends one request and gets an answer after a
+   ~11–20s hold, state back to `Ready`.
+
+`KEEP=1` leaves the simulated users running so you can poke at them (e.g.
+open two browser tabs on `/u/sim1/?token=…` and `/u/sim2/?token=…` — two
+users, two dashboards, two isolated agents). Cleanup is otherwise automatic.
+
+To emulate real *browser* users instead: create two users via the admin API,
+open each dashboard URL in separate browser profiles, log in with the
+platform dashboard credentials, and chat — each tab holds a WebSocket to its
+own sandbox, which counts as activity and blocks idle suspension until the
+tab closes.
 
 ## Status
 
@@ -264,6 +351,24 @@ Every load-bearing decision lives here. If you change one, update this list.
     `envFrom` — add any `*_API_KEY` without touching the chart.
 19. Images for GKE live in Artifact Registry in `gke-ai-eco-dev`
     (`make images-push` builds amd64 and mirrors the pinned Hermes image).
+
+## Future work
+
+Designed and researched, deliberately not built yet:
+
+- **Production data plane on Envoy** (`docs/envoy-dataplane-plan.md`): replace
+  the single-replica Go proxy with self-hosted Envoy (ext_authz headers-only
+  auth + wake-hold, ORIGINAL_DST per-user routing) for 10k+ concurrent
+  long-lived connections. Includes the fact-checked **GKE verdict**: works
+  only as self-hosted Envoy behind an L4 passthrough NLB — GKE's managed
+  Gateway is disqualified (Service Extensions timeout caps; no dynamic
+  upstream steering). Four spikes remain before implementation.
+- **Cron phase 2** (`docs/cron-wake-design.md`): a Hermes `CronScheduler`
+  provider plugin pushing schedule changes to the platform in real time,
+  once upstream stabilizes the interface.
+- TLS/domain in front of the gateway on GKE; gVisor node pool for sandbox
+  hardening; webhook-mode Telegram (suspendable bot users); gateway
+  scale-out.
 
 ## Development
 
