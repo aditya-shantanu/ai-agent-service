@@ -50,8 +50,25 @@ sleep 3
 
 pool_size() { kubectl -n "$NS" get sandboxes -o json | jq '[.items[] | select(.metadata.ownerReferences[0].kind == "SandboxWarmPool")] | length'; }
 
+# Pre-clean leftovers from prior runs and WAIT until fully gone: creating a
+# user whose old claim is still terminating replays idempotently WITHOUT a
+# token, and every subsequent request 401s.
+for i in $(seq 1 "$USERS"); do
+  $CURL -H "$A" -X DELETE "http://$GW/api/v1/users/$PREFIX$i" >/dev/null 2>&1 || true
+done
+for i in $(seq 1 "$USERS"); do
+  for _ in $(seq 1 30); do
+    CODE=$($CURL -o /dev/null -w '%{http_code}' -H "$A" "http://$GW/api/v1/users/$PREFIX$i")
+    [ "$CODE" = "404" ] && break
+    sleep 2
+  done
+done
+
 say "Warm pool before: $(pool_size) spare(s). Creating $USERS users in parallel..."
 T0=$(date +%s)
+# NB: collect explicit PIDs — a bare `wait` would also wait on the
+# port-forward background job and hang forever.
+PIDS=()
 for i in $(seq 1 "$USERS"); do
   (
     START=$(date +%s)
@@ -60,8 +77,9 @@ for i in $(seq 1 "$USERS"); do
     echo "$RESP" | jq -r .token > "$WORKDIR/$PREFIX$i.token"
     echo "$RESP" | jq -r ".sandboxName + \" ${took}s\"" > "$WORKDIR/$PREFIX$i.info"
   ) &
+  PIDS+=($!)
 done
-wait
+wait "${PIDS[@]}"
 say "All $USERS users provisioned in $(( $(date +%s) - T0 ))s total:"
 row USER STATE SANDBOX "PROVISION TIME"
 for i in $(seq 1 "$USERS"); do
@@ -72,6 +90,7 @@ done
 echo "  Warm pool after: $(pool_size) spare(s) (replenishing in background)"
 
 say "Concurrent traffic: every user hits their own agent through the proxy"
+PIDS=()
 for i in $(seq 1 "$USERS"); do
   (
     TOKEN=$(cat "$WORKDIR/$PREFIX$i.token")
@@ -79,8 +98,9 @@ for i in $(seq 1 "$USERS"); do
       -H "Authorization: Bearer $TOKEN" "http://$GW/u/$PREFIX$i/v1/models")
     echo "  $PREFIX$i -> /v1/models: HTTP $CODE"
   ) &
+  PIDS+=($!)
 done
-wait
+wait "${PIDS[@]}"
 
 say "Cross-user isolation: ${PREFIX}1's token must NOT work for ${PREFIX}2"
 TOKEN1=$(cat "$WORKDIR/${PREFIX}1.token")
@@ -88,12 +108,21 @@ CODE=$($CURL -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN1" "
 echo "  ${PREFIX}1 token on /u/${PREFIX}2: HTTP $CODE (expect 401)"
 
 IDLE_TIMEOUT=$(kubectl -n "$NS" get deploy hermes-gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_TIMEOUT")].value}')
+# Normalize Go durations like "90s" / "1m" / "2m30s" to seconds.
+IDLE_SECS=$(python3 - "$IDLE_TIMEOUT" <<'PYEOF'
+import re, sys
+total = 0
+for num, unit in re.findall(r'(\d+)([hms])', sys.argv[1]):
+    total += int(num) * {'h': 3600, 'm': 60, 's': 1}[unit]
+print(total or 99999)
+PYEOF
+)
 say "Idle phase: ${PREFIX}1 stays active (heartbeat); the rest go idle (idle timeout: $IDLE_TIMEOUT)"
-if [[ "$IDLE_TIMEOUT" != *s ]] || [ "${IDLE_TIMEOUT%s}" -gt 120 ]; then
+if [ "$IDLE_SECS" -gt 120 ]; then
   echo "  Idle timeout is $IDLE_TIMEOUT — too long to demo interactively; skipping the suspend/wake phase."
   echo "  (Deploy with the default idle.timeout=1m to watch it.)"
 else
-  WINDOW=$(( ${IDLE_TIMEOUT%s} + 90 ))
+  WINDOW=$(( IDLE_SECS + 90 ))
   END=$(( $(date +%s) + WINDOW ))
   while [ "$(date +%s)" -lt "$END" ]; do
     $CURL -o /dev/null -H "Authorization: Bearer $TOKEN1" "http://$GW/u/${PREFIX}1/v1/models" || true
