@@ -33,9 +33,14 @@ $/agent → **~$0.50** as sandbox nodes are added (fixed costs amortize).
    sweeper now uses a 15 s base tail for isolated requests and a 2 m tail
    while a conversation is active (two activities within `activeTimeout`);
    conversations pay resume/tail once, not per message. Knobs:
-   `idle.timeout` / `idle.activeTimeout`. Model effect at plateau:
-   compute share ~$0.256 → ~$0.13 → **~$0.21/agent**. Level 2 (in-pod
-   busy probe) and level 3 (predictive/pre-warm) remain future work.
+   `idle.timeout` / `idle.activeTimeout`. Honest model effect with the
+   deployed knobs (2 m active tail, 3 conversations/day, 30 s gaps): the
+   plateau moves ~$0.34 → **~$0.31/agent** — the correction from the
+   earlier ~$0.21 estimate is that conversations pay the *active* tail
+   (120 s), not the base one. At these defaults Level 1 is mostly a UX
+   win (no mid-conversation wakes) + it makes `activeTimeout` the direct
+   cost dial: dropping it to 60 s prices at ~$0.28. Level 2 (in-pod busy
+   probe) and level 3 (predictive/pre-warm) remain future work.
 6. **GKE free tier / fee check.** The $0.10/h cluster fee is waived for one
    zonal cluster per billing account — this cluster qualifies. Confirm on
    the bill; if another cluster claims it, that's still ~$73/mo across all

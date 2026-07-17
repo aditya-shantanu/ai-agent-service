@@ -70,7 +70,7 @@
 <body>
 <div class="wrap">
   <h1>Hermes-as-a-Service — GKE cost calculator</h1>
-  <p class="sub">$/agent/month from hardware, usage and suspend/resume assumptions. Every field is editable — results update live.</p>
+  <p class="sub">$/agent/month from hardware, usage and suspend/resume assumptions. Defaults show the <strong>golden scenario</strong>: the currently deployed posture (Spot e2-custom-16-20480, right-sized requests, adaptive suspension 15s/2m). Every field is editable — results update live.</p>
 
   <div class="tiles" id="tiles"></div>
 
@@ -193,7 +193,13 @@ function compute(s, resumeOverrideMs) {
   const total = nodeMonth + mgmtMonth + diskMonth;
   const perAgent = agents > 0 ? total / agents : NaN;
   const alwaysOn = capacity > 0 ? total / capacity : NaN;                    // no suspend/resume at all
-  return { perInteraction, podSecDay, duty, capacity, agents, nodeMonth, mgmtMonth, diskMonth, total, perAgent, alwaysOn };
+  // At-scale floor: marginal cost once fixed costs (cluster fee, spares)
+  // are amortized — reached at roughly 10k+ agents. Pure duty-cycle share
+  // of a pod slot plus the always-on PVC.
+  const slotsRaw = Math.floor(Math.min(usableCpu / s.cpuReq, usableRam / s.ramReq));
+  const floorPerAgent = slotsRaw > 0
+    ? (nodeMonth / slotsRaw) * duty * s.peak + s.diskGb * s.pDisk : NaN;
+  return { perInteraction, podSecDay, duty, capacity, agents, nodeMonth, mgmtMonth, diskMonth, total, perAgent, alwaysOn, floorPerAgent };
 }
 
 // ---------------------------------------------------------------- charts (plain SVG, one series each)
@@ -253,6 +259,8 @@ function render() {
   const tiles = [
     ["$ / agent / month", isFinite(r.perAgent) ? fmt$(r.perAgent) : "—",
       `vs ${isFinite(r.alwaysOn) ? fmt$(r.alwaysOn) : "—"} always-on (no suspend)`, true],
+    ["$ / agent at scale", isFinite(r.floorPerAgent) ? fmt$(r.floorPerAgent) : "—",
+      "marginal floor once fixed costs amortize (~10k+ agents)"],
     ["Max agents", isFinite(r.agents) ? r.agents.toLocaleString() : "∞",
       `${r.capacity} concurrent pod slots × 1/(duty×peak)`],
     ["Duty cycle", (r.duty * 100).toFixed(2) + "%",
