@@ -34,7 +34,17 @@ deliberately it handles being killed, which is this platform's whole premise:
    identical pods, personalized only by whose PVC and token map to them. As
    a bonus, dashboard sessions survive suspend/resume (validated), so users
    don't get logged out when their pod is recycled.
-5. **Multi-surface out of the box**: web dashboard + OpenAI-compatible API +
+5. **Cron survives suspension — and upstream planned for external
+   schedulers.** Hermes persists each job's `next_run_at` in
+   `cron/jobs.json` (on the PVC) and catch-up-fires missed jobs once on
+   boot (collapsed backlog, no burst), so a suspended sandbox turns
+   "missed jobs" into "late jobs" by design. It also ships external-trigger
+   hooks: `hermes cron tick` (fire due jobs once and exit) and an
+   experimental pluggable `CronScheduler` provider aimed explicitly at
+   scale-to-zero deployments — the platform can own *when* to wake while
+   Hermes owns execution (see `docs/cron-wake-design.md`). OpenClaw's cron
+   assumes 24/7 uptime: jobs silently miss while it's down.
+6. **Multi-surface out of the box**: web dashboard + OpenAI-compatible API +
    20+ messaging platforms from one process, all state on one volume.
 
 OpenClaw remains a fine self-hosted personal assistant; it's the wrong
