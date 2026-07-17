@@ -1,5 +1,20 @@
 # Cost-reduction roadmap ($/agent/month)
 
+**Model assumptions (every number below derives from these; all are
+editable fields in `index.html`):** each agent gets 10 interactions/day
+grouped into 3 conversations (30 s gaps between messages), each
+interaction is 1 minute of agent work; traffic falls inside a 16 h/day
+active window with a 2× peak-over-mean concurrency factor. Suspend takes
+2,000 ms, resume 10,000 ms; the idle tail is 15 s after an isolated
+message and 2 m while a conversation is active (deployed adaptive
+policy). Per agent: 0.5 vCPU / 1 GiB requests (2 vCPU / 2 GiB limits) and
+a 2 GB PVC that bills 24/7 even while suspended. Hardware: Spot
+`e2-custom-16-20480` sandbox nodes (~15% reserved for system), 2 always-on
+warm spares, one on-demand system node + cluster fee as fixed overhead.
+Prices are GCP us-central1 list (Spot) as of 2026-07; measured inputs so
+far: warm adoption ≤2 s, resume 11–20 s observed, idle Hermes RSS
+~248 MiB.
+
 Scenario math from the model in this folder (defaults now reflect the
 current deployed posture). History and remaining levers, in order of
 leverage. Baseline before any of this: **$12.88/agent** (2×e2-standard-4
