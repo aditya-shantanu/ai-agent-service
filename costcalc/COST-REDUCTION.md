@@ -58,3 +58,31 @@ $/agent → **~$0.50** as sandbox nodes are added (fixed costs amortize).
 
 Re-derive any scenario by editing the fields in `index.html` — that is the
 tool's job.
+
+## Scale behavior (asked 2026-07-17: "what about a million agents?")
+
+$/agent falls steeply while fixed costs (cluster fee, system pool, warm
+spares) amortize, then **plateaus at the marginal cost** — with the current
+posture that plateau is reached by ~10k agents:
+
+| agents | Spot nodes | clusters | $/month | $/agent |
+|---|---|---|---|---|
+| 100 | 1 | 1 | $230 | $2.30 |
+| 1,000 | 3 | 1 | $481 | $0.48 |
+| 10,000 | 29 | 1 | $3.5k | $0.35 |
+| 100,000 | 287 | 1 | $33.7k | $0.34 |
+| 1,000,000 | 2,865 | ~10 | $337k | **$0.34** |
+
+The plateau decomposes as **$0.256 compute** (duty-cycle share of a Spot
+slot) + **$0.080 disk** — so at scale the levers change: the idle timeout
+(TODO #5) attacks the compute share, while **disk becomes the irreducible
+per-agent floor** (scale-invariant; verify PD minimum-size rounding and
+consider cheaper archival tiers for long-suspended users). At ~$4M/yr spend,
+negotiated/committed discounts move every number.
+
+Honesty about the model at 1M: it assumes linear infrastructure. Reality
+adds: sharding across ~10+ clusters (1M Sandboxes+Claims+PVCs exceed a
+single cluster's etcd object budget), the Envoy data plane becomes mandatory
+(~46k concurrent connections vs the 1-replica gateway), Spot capacity
+diversification across zones, and mass-wake herd management — all already
+tracked in the README future-work section.
