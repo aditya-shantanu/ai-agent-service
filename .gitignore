@@ -1,0 +1,23 @@
+# Binaries
+/bin/
+/dist/
+*.exe
+
+# Go
+*.test
+*.out
+coverage.html
+
+# Local env / secrets — never commit
+.env
+*.local.env
+/secrets/
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local tooling state
+/.kube/
+kubeconfig*
