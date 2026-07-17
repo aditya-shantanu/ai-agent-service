@@ -185,3 +185,68 @@ func TestRecreatedUserGetsFreshIdleClock(t *testing.T) {
 		t.Fatalf("re-created user never suspends: %s", m)
 	}
 }
+
+// Level-1 adaptive suspension: isolated requests get the short base window;
+// conversations (two activities close together) get the extended window.
+func TestAdaptiveWindow(t *testing.T) {
+	s, tracker, clients, now := newSuspenderFixture(t)
+	s.IdleTimeout = 15 * time.Second
+	s.ActiveTimeout = 2 * time.Minute
+	seedReadyUser(t, clients, "solo", false)
+	seedReadyUser(t, clients, "chatty", false)
+	ctx := context.Background()
+	s.SweepOnce(ctx) // first sight: start clocks
+
+	// solo: one isolated request.
+	tracker.Touch("solo")
+	// chatty: two messages 30s apart = conversation.
+	tracker.Touch("chatty")
+	*now = now.Add(30 * time.Second)
+	tracker.Touch("chatty")
+
+	// 20s after the last activity: past base (15s) for solo -> suspended;
+	// chatty is inside the active window -> still up.
+	*now = now.Add(20 * time.Second)
+	s.SweepOnce(ctx)
+	if m := modeOf(t, clients, "solo"); m != sandboxv1beta1.SandboxOperatingModeSuspended {
+		t.Fatalf("isolated user not suspended after base window: %s", m)
+	}
+	if m := modeOf(t, clients, "chatty"); m != sandboxv1beta1.SandboxOperatingModeRunning {
+		t.Fatalf("conversation user suspended inside active window: %s", m)
+	}
+
+	// 2m+ after chatty's last message: conversation over -> suspended.
+	*now = now.Add(2 * time.Minute)
+	s.SweepOnce(ctx)
+	if m := modeOf(t, clients, "chatty"); m != sandboxv1beta1.SandboxOperatingModeSuspended {
+		t.Fatalf("conversation user not suspended after active window: %s", m)
+	}
+}
+
+// After a conversation ends and the user later sends ONE isolated message,
+// the window must decay back to base — not stay generous forever.
+func TestAdaptiveWindowDecays(t *testing.T) {
+	s, tracker, clients, now := newSuspenderFixture(t)
+	s.IdleTimeout = 15 * time.Second
+	s.ActiveTimeout = 2 * time.Minute
+	seedReadyUser(t, clients, "returner", false)
+	ctx := context.Background()
+	s.SweepOnce(ctx)
+
+	// Conversation earlier in the day...
+	tracker.Touch("returner")
+	*now = now.Add(20 * time.Second)
+	tracker.Touch("returner")
+	// ...then hours of silence (sandbox would have suspended; simulate it
+	// coming back Ready after a wake), then ONE isolated message.
+	*now = now.Add(3 * time.Hour)
+	tracker.Touch("returner")
+
+	// gap(prev,last) = 3h > active window -> base window applies: 20s later
+	// the user suspends.
+	*now = now.Add(20 * time.Second)
+	s.SweepOnce(ctx)
+	if m := modeOf(t, clients, "returner"); m != sandboxv1beta1.SandboxOperatingModeSuspended {
+		t.Fatalf("window did not decay to base after isolated return: %s", m)
+	}
+}

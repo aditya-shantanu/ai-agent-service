@@ -15,7 +15,12 @@ gateway:
   wakeTimeout: 60s
 
 idle:
-  timeout: 1m
+  # Adaptive suspension: `timeout` is the short tail after an isolated
+  # request; `activeTimeout` is the generous tail while a conversation is
+  # in progress (two requests within activeTimeout of each other). See
+  # costcalc/COST-REDUCTION.md #5.
+  timeout: 15s
+  activeTimeout: 2m
   # If true, users with a Telegram token are ALSO idle-suspended (their bot
   # goes offline while suspended). Default false: telegram users stay up.
   suspendTelegramUsers: false

@@ -29,8 +29,11 @@ type Config struct {
 	ProvisionTimeout time.Duration
 	// WakeTimeout bounds the wake-on-connect hold.
 	WakeTimeout time.Duration
-	// IdleTimeout after which a user with no activity is suspended.
+	// IdleTimeout is the BASE idle window after an isolated interaction.
 	IdleTimeout time.Duration
+	// IdleActiveTimeout is the extended window while a conversation is in
+	// progress (two activities within this duration of each other).
+	IdleActiveTimeout time.Duration
 	// CronGrace protects a cron-woken sandbox from idle suspension long
 	// enough for the scheduled job to start (and usually finish).
 	CronGrace time.Duration
@@ -50,7 +53,8 @@ func FromEnv() (*Config, error) {
 		SandboxAPIKey:        os.Getenv("SANDBOX_API_SERVER_KEY"),
 		ProvisionTimeout:     durOr("PROVISION_TIMEOUT", 120*time.Second),
 		WakeTimeout:          durOr("WAKE_TIMEOUT", 60*time.Second),
-		IdleTimeout:          durOr("IDLE_TIMEOUT", time.Minute),
+		IdleTimeout:          durOr("IDLE_TIMEOUT", 15*time.Second),
+		IdleActiveTimeout:    durOr("IDLE_ACTIVE_TIMEOUT", 2*time.Minute),
 		CronGrace:            durOr("CRON_GRACE", 2*time.Minute),
 		SuspendTelegramUsers: os.Getenv("SUSPEND_TELEGRAM_USERS") == "true",
 	}

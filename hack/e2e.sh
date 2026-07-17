@@ -62,10 +62,11 @@ MODELS=$(curl -s -H "Authorization: Bearer $TOKEN" "http://$GW/u/$USER_ID/v1/mod
 echo "$MODELS" | jq -e '.object == "list"' >/dev/null || fail "v1/models failed: $MODELS"
 pass "OpenAI-compatible API through proxy (key injection)"
 
-# 5. Idle suspend (1m timeout + 30s sweep)
-echo "  waiting up to 150s for idle suspension..."
+# 5. Idle suspend. The preceding request burst counts as a conversation, so
+# the ACTIVE window (2m) applies + 30s sweep granularity.
+echo "  waiting up to 240s for idle suspension (active window)..."
 SUSPENDED=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 48); do
   STATE=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .state)
   [ "$STATE" = "Suspended" ] && SUSPENDED=1 && break
   sleep 5
@@ -109,7 +110,7 @@ kubectl -n "$NS" exec "$POD" -- sh -c \
   'mkdir -p /opt/data/scripts && printf "#!/bin/bash\ndate -u >> /opt/data/cron-marker\necho ran\n" > /opt/data/scripts/marker.sh'
 kubectl -n "$NS" exec "$POD" -- hermes cron create 'every 2m' --name e2e-marker --script marker.sh --no-agent >/dev/null
 SUSPENDED=""
-for _ in $(seq 1 30); do
+for _ in $(seq 1 48); do
   STATE=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .state)
   [ "$STATE" = "Suspended" ] && SUSPENDED=1 && break
   sleep 5

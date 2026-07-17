@@ -29,12 +29,13 @@ $/agent → **~$0.50** as sandbox nodes are added (fixed costs amortize).
    (`kubectl top` / VPA recommendations on busy agents). If idle RSS is
    well under 1 Gi, dropping the RAM request directly multiplies density.
    Exit: a load test justifying the numbers in `values.yaml`.
-5. **Adaptive idle timeout.** At 60 s fixed, idle-tail is ~half of every
-   interaction's pod-time; cutting to ~15 s adds ~50% capacity but taxes
-   quick follow-ups with a wake. Proposal: short default (15 s) that the
-   gateway extends while a conversation is active (recent requests within
-   N minutes → longer window). Exit: capacity gain with no wake during an
-   active chat session.
+5. ~~**Adaptive idle timeout.**~~ **DONE (2026-07-17, Level 1).** The
+   sweeper now uses a 15 s base tail for isolated requests and a 2 m tail
+   while a conversation is active (two activities within `activeTimeout`);
+   conversations pay resume/tail once, not per message. Knobs:
+   `idle.timeout` / `idle.activeTimeout`. Model effect at plateau:
+   compute share ~$0.256 → ~$0.13 → **~$0.21/agent**. Level 2 (in-pod
+   busy probe) and level 3 (predictive/pre-warm) remain future work.
 6. **GKE free tier / fee check.** The $0.10/h cluster fee is waived for one
    zonal cluster per billing account — this cluster qualifies. Confirm on
    the bill; if another cluster claims it, that's still ~$73/mo across all

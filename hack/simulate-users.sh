@@ -108,16 +108,19 @@ CODE=$($CURL -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $TOKEN1" "
 echo "  ${PREFIX}1 token on /u/${PREFIX}2: HTTP $CODE (expect 401)"
 
 IDLE_TIMEOUT=$(kubectl -n "$NS" get deploy hermes-gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_TIMEOUT")].value}')
+IDLE_ACTIVE=$(kubectl -n "$NS" get deploy hermes-gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_ACTIVE_TIMEOUT")].value}')
+IDLE_ACTIVE=${IDLE_ACTIVE:-$IDLE_TIMEOUT}
 # Normalize Go durations like "90s" / "1m" / "2m30s" to seconds.
-IDLE_SECS=$(python3 - "$IDLE_TIMEOUT" <<'PYEOF'
+IDLE_SECS=$(python3 - "$IDLE_ACTIVE" <<'PYEOF'
 import re, sys
+# Signup + first request form a "conversation", so the ACTIVE window governs.
 total = 0
 for num, unit in re.findall(r'(\d+)([hms])', sys.argv[1]):
     total += int(num) * {'h': 3600, 'm': 60, 's': 1}[unit]
 print(total or 99999)
 PYEOF
 )
-say "Idle phase: ${PREFIX}1 stays active (heartbeat); the rest go idle (idle timeout: $IDLE_TIMEOUT)"
+say "Idle phase: ${PREFIX}1 stays active (heartbeat); the rest go idle (base $IDLE_TIMEOUT / active $IDLE_ACTIVE)"
 if [ "$IDLE_SECS" -gt 120 ]; then
   echo "  Idle timeout is $IDLE_TIMEOUT — too long to demo interactively; skipping the suspend/wake phase."
   echo "  (Deploy with the default idle.timeout=1m to watch it.)"

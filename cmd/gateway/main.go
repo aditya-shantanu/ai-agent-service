@@ -90,6 +90,7 @@ func main() {
 		Resolver:             resolver,
 		Lifecycle:            lifecycle,
 		IdleTimeout:          cfg.IdleTimeout,
+		ActiveTimeout:        cfg.IdleActiveTimeout,
 		SuspendTelegramUsers: cfg.SuspendTelegramUsers,
 	}
 	go suspender.Run(context.Background())

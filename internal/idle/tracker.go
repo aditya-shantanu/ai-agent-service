@@ -11,7 +11,9 @@ import (
 )
 
 type entry struct {
-	lastActivity time.Time
+	watchSince   time.Time // when tracking began (bookkeeping, not an activity)
+	lastActivity time.Time // real activities only
+	prevActivity time.Time // the activity before last: gap(prev,last) detects conversations
 	inflight     int
 }
 
@@ -31,30 +33,40 @@ func NewTracker() *Tracker {
 func (t *Tracker) get(user string) *entry {
 	e, ok := t.entries[user]
 	if !ok {
-		e = &entry{lastActivity: t.now()}
+		e = &entry{watchSince: t.now()}
 		t.entries[user] = e
 	}
 	return e
+}
+
+// Observe starts the idle clock for a user WITHOUT recording an activity
+// pair — used at first sight (gateway restart, sweep discovery) so the
+// bookkeeping itself can't masquerade as a conversation.
+func (t *Tracker) Observe(user string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.get(user) // get() initializes watchSince=now; no activity recorded
 }
 
 // Touch marks activity for the user.
 func (t *Tracker) Touch(user string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.get(user).lastActivity = t.now()
+	e := t.get(user)
+	e.prevActivity, e.lastActivity = e.lastActivity, t.now()
 }
 
 // Begin marks a request in flight; the returned func ends it (defer it).
 func (t *Tracker) Begin(user string) func() {
 	t.mu.Lock()
 	e := t.get(user)
-	e.lastActivity = t.now()
+	e.prevActivity, e.lastActivity = e.lastActivity, t.now()
 	e.inflight++
 	t.mu.Unlock()
 	return func() {
 		t.mu.Lock()
 		e.inflight--
-		e.lastActivity = t.now()
+		e.prevActivity, e.lastActivity = e.lastActivity, t.now()
 		t.mu.Unlock()
 	}
 }
@@ -66,24 +78,41 @@ func (t *Tracker) Forget(user string) {
 	delete(t.entries, user)
 }
 
-// IdleSince reports (idleFor, inflight) for a user. Unknown users are treated
-// as idle since the tracker started following them (i.e., never seen: 0).
-func (t *Tracker) snapshot(user string) (time.Duration, int, bool) {
+// snapshot reports (idleFor, activityGap, inflight, seen) for a user.
+// activityGap is the spacing between the user's last two activities — small
+// gaps mean an active conversation.
+func (t *Tracker) snapshot(user string) (time.Duration, time.Duration, int, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	e, ok := t.entries[user]
 	if !ok {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	return t.now().Sub(e.lastActivity), e.inflight, true
+	gap := time.Duration(1<<62 - 1) // no prior activity pair = not a conversation
+	if !e.prevActivity.IsZero() {
+		gap = e.lastActivity.Sub(e.prevActivity)
+	}
+	ref := e.lastActivity
+	if ref.IsZero() {
+		ref = e.watchSince // never active: idle since we started watching
+	}
+	return t.now().Sub(ref), gap, e.inflight, true
 }
 
-// Suspender periodically suspends Ready users idle beyond IdleTimeout.
+// Suspender periodically suspends Ready users whose idle time exceeds their
+// CURRENT window: BaseTimeout normally, ActiveTimeout while "in a
+// conversation" (last two activities within ActiveTimeout of each other).
+// Level-1 adaptive suspension: conversations pay the idle tail once, not
+// per message (costcalc/COST-REDUCTION.md #5).
 type Suspender struct {
-	Tracker              *Tracker
-	Resolver             *sandbox.Resolver
-	Lifecycle            *sandbox.Lifecycle
-	IdleTimeout          time.Duration
+	Tracker   *Tracker
+	Resolver  *sandbox.Resolver
+	Lifecycle *sandbox.Lifecycle
+	// IdleTimeout is the BASE window after an isolated interaction.
+	IdleTimeout time.Duration
+	// ActiveTimeout is the extended window during a conversation.
+	// Zero disables adaptivity (base window always — legacy behavior).
+	ActiveTimeout        time.Duration
 	SuspendTelegramUsers bool // if false, suspend-exempt users are skipped
 	Interval             time.Duration
 }
@@ -125,17 +154,24 @@ func (s *Suspender) sweep(ctx context.Context) {
 		if !ua.CronGraceUntil.IsZero() && s.Tracker.now().Before(ua.CronGraceUntil) {
 			continue
 		}
-		idleFor, inflight, seen := s.Tracker.snapshot(ua.UserID)
+		idleFor, gap, inflight, seen := s.Tracker.snapshot(ua.UserID)
 		if !seen {
 			// First time we see this user (e.g. gateway restart): start the
-			// idle clock now rather than suspending immediately.
-			s.Tracker.Touch(ua.UserID)
+			// idle clock now rather than suspending immediately. Observe, not
+			// Touch: bookkeeping must not pair with the user's next request
+			// into a phantom "conversation".
+			s.Tracker.Observe(ua.UserID)
 			continue
 		}
-		if inflight > 0 || idleFor < s.IdleTimeout {
+		window := s.IdleTimeout
+		if s.ActiveTimeout > 0 && gap <= s.ActiveTimeout {
+			window = s.ActiveTimeout // conversation in progress: generous tail
+		}
+		if inflight > 0 || idleFor < window {
 			continue
 		}
-		slog.Info("idle sweep: suspending", "user", ua.UserID, "idle", idleFor.Round(time.Second))
+		slog.Info("idle sweep: suspending", "user", ua.UserID,
+			"idle", idleFor.Round(time.Second), "window", window)
 		if _, err := s.Lifecycle.Suspend(ctx, ua.UserID); err != nil {
 			slog.Error("idle sweep: suspend failed", "user", ua.UserID, "err", err)
 		}
