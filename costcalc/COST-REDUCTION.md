@@ -1,19 +1,29 @@
 # Cost-reduction roadmap ($/agent/month)
 
-**Model assumptions (every number below derives from these; all are
-editable fields in `index.html`):** each agent gets 10 interactions/day
-grouped into 3 conversations (30 s gaps between messages), each
-interaction is 1 minute of agent work; traffic falls inside a 16 h/day
-active window with a 2× peak-over-mean concurrency factor. Suspend takes
-2,000 ms, resume 10,000 ms; the idle tail is 15 s after an isolated
-message and 2 m while a conversation is active (deployed adaptive
-policy). Per agent: 0.5 vCPU / 1 GiB requests (2 vCPU / 2 GiB limits) and
-a 2 GB PVC that bills 24/7 even while suspended. Hardware: Spot
-`e2-custom-16-20480` sandbox nodes (~15% reserved for system), 2 always-on
-warm spares, one on-demand system node + cluster fee as fixed overhead.
-Prices are GCP us-central1 list (Spot) as of 2026-07; measured inputs so
-far: warm adoption ≤2 s, resume 11–20 s observed, idle Hermes RSS
-~248 MiB.
+## Model assumptions
+
+Every number in this document derives from these. All are editable fields
+in `index.html` — change one and the whole model recomputes.
+
+| | Assumption | Value |
+|---|---|---|
+| **Usage** | Interactions per agent | 10 / day |
+| | Grouped into conversations | 3 / day (30 s gaps between messages) |
+| | Work per interaction | 1 min |
+| | Traffic window | 16 h / day |
+| | Peak-over-mean concurrency | 2× |
+| **Suspend / resume** | Suspend | 2,000 ms |
+| | Resume | 10,000 ms |
+| | Idle tail — isolated message | 15 s |
+| | Idle tail — active conversation | 2 m (deployed adaptive policy) |
+| **Per agent** | Requests / limits | 0.5 vCPU, 1 GiB / 2 vCPU, 2 GiB |
+| | Persistent disk (PVC) | 2 GB — bills 24/7, even suspended |
+| **Hardware** | Sandbox nodes | Spot `e2-custom-16-20480`, ~15% reserved |
+| | Fixed overhead | 2 warm spares + on-demand system node + cluster fee |
+| | Prices | GCP us-central1 list, Spot (as of 2026-07) |
+| **Measured** | Warm adoption | ≤ 2 s |
+| | Resume (observed) | 11–20 s |
+| | Idle Hermes RSS | ~248 MiB (swap experiment) |
 
 Scenario math from the model in this folder (defaults now reflect the
 current deployed posture). History and remaining levers, in order of
