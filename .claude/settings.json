@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(kubectl get *)",
+      "Bash(kubectl logs *)",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl rollout status *)",
+      "Bash(kubectl --kubeconfig bin/KUBECONFIG get *)",
+      "Bash(kubectl --kubeconfig bin/KUBECONFIG logs *)",
+      "Bash(kubectl --kubeconfig bin/KUBECONFIG describe *)",
+      "Bash(kubectl --kubeconfig bin/KUBECONFIG rollout status *)",
+      "Bash(go version)",
+      "Bash(go vet *)",
+      "Bash(go test *)",
+      "Bash(gh project field-list *)",
+      "Bash(gh project item-list *)",
+      "Bash(gh project view *)",
+      "Bash(gh label list *)",
+      "Bash(gh auth token)",
+      "Bash(gcloud config get-value *)",
+      "Bash(gcloud storage ls *)",
+      "Bash(command -v *)",
+      "Bash(gcloud container clusters list *)",
+      "Bash(gcloud container clusters describe *)",
+      "Bash(go list *)",
+      "Bash(go build ./...)",
+      "Bash(gofmt -l *)",
+      "Bash(export PATH=\"$HOME/bin:$PATH\")",
+      "Bash(export PATH=\"$PATH:/usr/local/go/bin\")",
+      "Bash(export KUBECONFIG=/tmp/canary-verify-kubeconfig)"
+    ]
+  }
+}

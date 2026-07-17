@@ -1,0 +1,10 @@
+# kind (local e2e) overlay: fast idle-suspend, small pool.
+warmPool:
+  replicas: 2
+
+idle:
+  timeout: 60s
+
+sandbox:
+  storage:
+    size: 1Gi

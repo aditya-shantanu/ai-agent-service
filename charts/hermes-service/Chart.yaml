@@ -1,0 +1,11 @@
+apiVersion: v2
+name: hermes-service
+description: >-
+  Multi-user Hermes-agent-as-a-service on Kubernetes: per-user sandboxes via
+  agent-sandbox (warm-pool provisioning, suspend/resume), fronted by the
+  hermes-gateway control plane + proxy. Requires agent-sandbox (with
+  extensions) to be installed first — see the chart NOTES.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords: [ai, agents, hermes, agent-sandbox]

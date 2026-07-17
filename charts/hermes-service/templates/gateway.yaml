@@ -1,0 +1,125 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hermes-gateway
+  namespace: {{ .Release.Namespace }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hermes-gateway
+  namespace: {{ .Release.Namespace }}
+rules:
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxclaims"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  - apiGroups: ["agents.x-k8s.io"]
+    resources: ["sandboxes"]
+    verbs: ["get", "list", "watch", "patch"]
+  - apiGroups: ["extensions.agents.x-k8s.io"]
+    resources: ["sandboxtemplates", "sandboxwarmpools"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "create", "update", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hermes-gateway
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hermes-gateway
+subjects:
+  - kind: ServiceAccount
+    name: hermes-gateway
+    namespace: {{ .Release.Namespace }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hermes-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: hermes-gateway
+    app.kubernetes.io/part-of: hermes-service
+spec:
+  # v1 constraint: exactly one replica (in-memory idle tracker + wake mutexes).
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: hermes-gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes-gateway
+    spec:
+      serviceAccountName: hermes-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+      containers:
+        - name: gateway
+          image: {{ .Values.gateway.image }}
+          imagePullPolicy: {{ .Values.gateway.imagePullPolicy }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: HERMES_NAMESPACE
+              value: {{ .Release.Namespace }}
+            - name: WARM_POOL_NAME
+              value: hermes-pool
+            - name: IDLE_TIMEOUT
+              value: {{ .Values.idle.timeout | quote }}
+            - name: SUSPEND_TELEGRAM_USERS
+              value: {{ .Values.idle.suspendTelegramUsers | quote }}
+            - name: PROVISION_TIMEOUT
+              value: {{ .Values.gateway.provisionTimeout | quote }}
+            - name: WAKE_TIMEOUT
+              value: {{ .Values.gateway.wakeTimeout | quote }}
+            - name: ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermes.adminSecretName" . }}
+                  key: admin-token
+            - name: SANDBOX_API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermes.platformSecretName" . }}
+                  key: api-server-key
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+          resources:
+            {{- toYaml .Values.gateway.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: hermes-gateway
+spec:
+  type: {{ .Values.gateway.service.type }}
+  selector:
+    app.kubernetes.io/name: hermes-gateway
+  ports:
+    - port: {{ .Values.gateway.service.port }}
+      targetPort: 8080

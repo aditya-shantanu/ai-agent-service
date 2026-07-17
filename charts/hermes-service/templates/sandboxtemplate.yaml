@@ -1,0 +1,132 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: hermes-agent
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: hermes-service
+spec:
+  # Claims must not inject env/VCTs: rejection > silent warm-pool bypass.
+  envVarsInjectionPolicy: Disallowed
+  volumeClaimTemplatesPolicy: Disallowed
+
+  # Per-sandbox headless Service -> stable DNS for the gateway proxy.
+  service: true
+
+{{- if .Values.networkPolicy.enabled }}
+  # Shared NetworkPolicy: THE per-user isolation boundary (shared in-sandbox
+  # credentials). Only the gateway may reach the two Hermes ports.
+  networkPolicyManagement: Managed
+  networkPolicy:
+    ingress:
+      - from:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: {{ .Release.Namespace }}
+            podSelector:
+              matchLabels:
+                app.kubernetes.io/name: hermes-gateway
+        ports:
+          - port: 9119
+            protocol: TCP
+          - port: 8642
+            protocol: TCP
+    egress:
+      - to:
+          - namespaceSelector: {}
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+        ports:
+          - port: 53
+            protocol: UDP
+          - port: 53
+            protocol: TCP
+      - to:
+          - ipBlock:
+              cidr: 0.0.0.0/0
+              except:
+                - 10.0.0.0/8
+                - 172.16.0.0/12
+                - 192.168.0.0/16
+                - 169.254.169.254/32
+{{- else }}
+  networkPolicyManagement: Unmanaged
+{{- end }}
+
+  podTemplate:
+    metadata:
+      labels:
+        app.kubernetes.io/part-of: hermes-service
+    spec:
+      securityContext:
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        runAsNonRoot: true
+      containers:
+        - name: hermes
+          image: {{ .Values.hermes.image }}
+          imagePullPolicy: {{ .Values.hermes.imagePullPolicy }}
+          args: ["sleep", "infinity"]  # s6 services carry the workload
+          ports:
+            - name: dashboard
+              containerPort: 9119
+            - name: openai-api
+              containerPort: 8642
+          envFrom:
+            - secretRef:
+                name: {{ include "hermes.providerSecretName" . }}
+          env:
+            - name: HERMES_DASHBOARD
+              value: "1"
+            - name: HERMES_DASHBOARD_HOST
+              value: "0.0.0.0"
+            - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermes.platformSecretName" . }}
+                  key: dashboard-username
+            - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermes.platformSecretName" . }}
+                  key: dashboard-password
+            - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermes.platformSecretName" . }}
+                  key: dashboard-session-secret
+            - name: HERMES_GATEWAY_BOOTSTRAP_STATE
+              value: "running"
+            - name: API_SERVER_ENABLED
+              value: "true"
+            - name: API_SERVER_HOST
+              value: "0.0.0.0"
+            - name: API_SERVER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hermes.platformSecretName" . }}
+                  key: api-server-key
+          readinessProbe:
+            tcpSocket:
+              port: 9119
+            initialDelaySeconds: {{ .Values.sandbox.readiness.initialDelaySeconds }}
+            periodSeconds: {{ .Values.sandbox.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.sandbox.readiness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.sandbox.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- if .Values.sandbox.storage.storageClassName }}
+        storageClassName: {{ .Values.sandbox.storage.storageClassName }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.sandbox.storage.size }}

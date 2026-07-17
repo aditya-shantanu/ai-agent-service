@@ -1,0 +1,64 @@
+# Default values for hermes-service. See values-kind.yaml / values-gke.yaml
+# for environment overlays.
+
+gateway:
+  image: hermes-gateway:dev
+  imagePullPolicy: IfNotPresent
+  service:
+    type: ClusterIP
+    port: 8080
+  resources:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  # Timeouts/behavior (Go duration strings)
+  provisionTimeout: 120s
+  wakeTimeout: 60s
+
+idle:
+  timeout: 15m
+  # If true, users with a Telegram token are ALSO idle-suspended (their bot
+  # goes offline while suspended). Default false: telegram users stay up.
+  suspendTelegramUsers: false
+
+hermes:
+  image: nousresearch/hermes-agent:v2026.7.7.2
+  imagePullPolicy: IfNotPresent
+
+warmPool:
+  replicas: 5
+
+sandbox:
+  resources:
+    requests: {cpu: 250m, memory: 512Mi}
+    limits: {memory: 2Gi}
+  storage:
+    size: 2Gi
+    # Empty string uses the cluster default StorageClass (works on kind & GKE).
+    storageClassName: ""
+  readiness:
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    failureThreshold: 24
+
+# Shared platform secrets. Leave *.existingSecret empty to have the chart
+# GENERATE random values on first install (preserved across upgrades via
+# lookup). Set existingSecret to bring your own.
+secrets:
+  # Keys required in an existing secret: dashboard-username, dashboard-password,
+  # dashboard-session-secret, api-server-key
+  platform:
+    existingSecret: ""
+  # Keys required: admin-token
+  admin:
+    existingSecret: ""
+  # Secret holding LLM provider env vars (GEMINI_API_KEY, OPENAI_API_KEY,
+  # OPENROUTER_API_KEY, ...). Injected into every sandbox via envFrom.
+  # REQUIRED for chat to work; the chart creates an empty one if unset so
+  # infra still deploys.
+  providerKeys:
+    existingSecret: ""
+
+networkPolicy:
+  # The sandbox NetworkPolicy admitting only the gateway is the per-user
+  # isolation boundary (README decision 4). Keep enabled.
+  enabled: true

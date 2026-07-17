@@ -1,0 +1,35 @@
+hermes-service {{ .Chart.Version }} deployed to namespace {{ .Release.Namespace }}.
+
+PREREQUISITE CHECK — agent-sandbox CRDs must exist (install once per cluster):
+  kubectl get crd sandboxclaims.extensions.agents.x-k8s.io || \
+    kubectl apply -f https://github.com/kubernetes-sigs/agent-sandbox/releases/download/v0.5.2/sandbox-with-extensions.yaml
+
+1. Admin token:
+   ADMIN_TOKEN=$(kubectl -n {{ .Release.Namespace }} get secret {{ include "hermes.adminSecretName" . }} -o jsonpath='{.data.admin-token}' | base64 -d)
+
+2. LLM provider key (required for chat; infra works without it):
+   kubectl -n {{ .Release.Namespace }} create secret generic {{ include "hermes.providerSecretName" . }} \
+     --from-literal=GEMINI_API_KEY=YOUR_KEY --dry-run=client -o yaml | kubectl apply -f -
+   (Sandboxes pick it up on next pod creation: new users immediately;
+    existing users after a suspend/resume cycle.)
+
+3. Reach the gateway:
+{{- if eq .Values.gateway.service.type "LoadBalancer" }}
+   GW=$(kubectl -n {{ .Release.Namespace }} get svc hermes-gateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}'):{{ .Values.gateway.service.port }}
+{{- else }}
+   kubectl -n {{ .Release.Namespace }} port-forward svc/hermes-gateway 8080:{{ .Values.gateway.service.port }} &
+   GW=localhost:8080
+{{- end }}
+
+4. Create your first user:
+   curl -H "Authorization: Bearer $ADMIN_TOKEN" -X POST http://$GW/api/v1/users -d '{"userId":"alice"}'
+   # -> save .token from the response (shown once)
+
+5. Chat (OpenAI-compatible):
+   curl -H "Authorization: Bearer USER_TOKEN" http://$GW/u/alice/v1/chat/completions \
+     -d '{"model":"hermes-agent","messages":[{"role":"user","content":"hello"}]}'
+   Web dashboard: open http://$GW/u/alice/?token=USER_TOKEN and log in with
+   the platform dashboard credentials (secret: {{ include "hermes.platformSecretName" . }}).
+
+Idle agents suspend automatically after {{ .Values.idle.timeout }} (pod deleted,
+memory/sessions kept on PVC) and wake transparently on the next request.

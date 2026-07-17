@@ -1,0 +1,11 @@
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: hermes-pool
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: hermes-service
+spec:
+  replicas: {{ .Values.warmPool.replicas }}
+  sandboxTemplateRef:
+    name: hermes-agent
