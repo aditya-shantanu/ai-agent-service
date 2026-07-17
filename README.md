@@ -186,12 +186,21 @@ sequenceDiagram
 ```sh
 # LOCAL: everything from zero to a working platform
 make dev                    # kind cluster + agent-sandbox + helm install
-make e2e                    # verify: 10-check suite
+make e2e                    # verify: 11-check suite
+
+# LLM key (required for actual conversations; infra + e2e work without it):
+cp .env.example .env        # fill in GEMINI_API_KEY (file is gitignored)
+make set-provider-key       # loads .env into the cluster, cycles warm spares
 
 # PRODUCTION: after the one-time GKE setup in docs/gke.md
 make gke-credentials        # point kubectl at the GKE cluster
 make deploy-gke             # push images + install/upgrade
 ```
+
+Provider keys live only in your local `.env` (gitignored) and the in-cluster
+Secret — never in git, values files, or shell history. Existing users pick a
+new key up on their next suspend/resume; warm spares are cycled by the make
+target so new signups get it immediately.
 
 Both modes end with the Helm NOTES walkthrough: grab the admin token, add a
 real LLM provider key to `hermes-provider-keys`, create users, chat.

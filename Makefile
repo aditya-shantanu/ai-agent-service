@@ -50,6 +50,15 @@ e2e: ## Run the full-loop e2e test (expects deploy-kind done)
 simulate-users: ## Emulate N concurrent users (USERS=3): provision, traffic, idle, wake
 	NS=$(NAMESPACE) USERS=$(or $(USERS),3) hack/simulate-users.sh
 
+set-provider-key: ## Load LLM provider keys from .env into the cluster (kind or GKE)
+	@test -f .env || (echo "No .env file — copy .env.example to .env and fill in your key" && exit 1)
+	kubectl -n $(NAMESPACE) create secret generic hermes-provider-keys \
+	  --from-env-file=.env --dry-run=client -o yaml | kubectl apply -f -
+	@echo "Cycling warm-pool spares so new sandboxes get the key..."
+	kubectl -n $(NAMESPACE) delete sandboxes -l agents.x-k8s.io/warm-pool-sandbox --ignore-not-found
+	@echo "Done. Existing users pick the key up on their next suspend/resume cycle"
+	@echo "(or immediately: POST /api/v1/users/{id}/suspend then /resume)."
+
 undeploy: ## Remove the helm release (users/claims are NOT deleted)
 	helm uninstall hermes-service -n $(NAMESPACE)
 
