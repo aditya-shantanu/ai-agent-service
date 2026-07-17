@@ -32,12 +32,12 @@ spec:
           - port: 8642
             protocol: TCP
     egress:
-      - to:
-          - namespaceSelector: {}
-            podSelector:
-              matchLabels:
-                k8s-app: kube-dns
-        ports:
+      # DNS: port-53 to ANY destination (empty `to`). Deliberately not a
+      # kube-dns podSelector: GKE Dataplane V2 runs NodeLocal DNSCache as a
+      # host-network daemon intercepting the kube-dns VIP, and under Cilium
+      # host-identity traffic matches neither podSelectors nor ipBlocks —
+      # a selector-scoped rule silently breaks all DNS on GKE (validated).
+      - ports:
           - port: 53
             protocol: UDP
           - port: 53

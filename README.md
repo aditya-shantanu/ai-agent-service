@@ -280,7 +280,8 @@ inferred. Automated suites are re-runnable via the listed entry points.
 | Full platform loop (provision → proxy auth + both surfaces → idle suspend → wake-on-connect → session survival → telegram → **cron wake with zero traffic** → idempotent replay → cascade delete) | kind + GKE | `make e2e` — 11 checks, green on both |
 | Multi-user concurrency (parallel warm/cold signups, concurrent traffic, cross-user 401 isolation, differential idle-suspend, transparent wake) | kind | `make simulate-users` |
 | NetworkPolicy is the isolation boundary (unlabeled pods blocked, gateway label admitted) | kind (kube-network-policies) + GKE (Dataplane V2) | in m2 script + manual GKE check |
-| GKE production deploy (AR images, warm pool 72s to Ready, e2e 11/11, wake ~20s over PD reattach) | GKE `gke-ai-eco-dev` | `make deploy-gke` + `hack/e2e.sh` |
+| GKE production deploy (AR images, warm pool 72s to Ready, e2e 11/11, wake ~16-20s over PD reattach) | GKE `gke-ai-eco-dev` | `make deploy-gke` + `hack/e2e.sh` |
+| **From-zero Terraform rebuild (2026-07-17)**: `terraform apply` (cluster/WI/AR/GSM/IAM) → full deploy chain → e2e 11/11 → real Gemini chat → memory recalled across suspend/kill/wake in 25s (key synced from Secret Manager via ESO/Workload Identity) | GKE, fresh cluster | `make deploy-gke` |
 
 ### Durability deep-dive (2026-07-17): does everything survive kill/recreate?
 
@@ -345,8 +346,13 @@ Every load-bearing decision lives here. If you change one, update this list.
    Required for warm pools: pod env is baked before the user is known.
    *Caveat: the NetworkPolicy admitting only the gateway is therefore the
    real per-user isolation boundary — keep `networkPolicy.enabled: true`.
-   Enforcement verified on kind (kube-network-policies) and expected on GKE
-   Dataplane V2; verify on any other CNI before onboarding users.*
+   Enforcement verified on kind (kube-network-policies) and on GKE
+   Dataplane V2; verify on any other CNI before onboarding users. DNS egress
+   must be port-53-to-anywhere, NOT a kube-dns podSelector: GKE runs
+   NodeLocal DNSCache as a host-network daemon, and Cilium's host identity
+   matches neither podSelectors nor ipBlocks — the selector-scoped rule
+   silently breaks all sandbox DNS on GKE (found via a failing real-LLM
+   call; fixed and validated).*
 5. **The pod is the sandbox.** Hermes warns its terminal backend is
    "local/unsandboxed"; intentional here — an agent can only affect its own
    pod and PVC.
