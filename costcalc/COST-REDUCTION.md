@@ -16,14 +16,15 @@ in `index.html` — change one and the whole model recomputes.
 | | Resume | 10,000 ms |
 | | Idle tail — isolated message | 15 s |
 | | Idle tail — active conversation | 2 m (deployed adaptive policy) |
-| **Per agent** | Requests / limits | 0.5 vCPU, 1 GiB / 2 vCPU, 2 GiB |
+| **Per agent** | Requests / limits | 100m, 256 MiB / 2 vCPU, 2 GiB (measured; Burstable for swap) |
 | | Persistent disk (PVC) | 2 GB — bills 24/7, even suspended |
-| **Hardware** | Sandbox nodes | Spot `e2-custom-16-20480`, ~15% reserved |
+| **Hardware** | Sandbox nodes | Spot `n2d-standard-8` + dedicated-LSSD swap (~62 agent slots) |
 | | Fixed overhead | 2 warm spares + on-demand system node + cluster fee |
 | | Prices | GCP us-central1 list, Spot (as of 2026-07) |
 | **Measured** | Warm adoption | ≤ 2 s |
 | | Resume (observed) | 11–20 s |
-| | Idle Hermes RSS | ~248 MiB (swap experiment) |
+| | Idle Hermes RSS | ~248 MiB |
+| | Density (PVC-backed, per node) | 62 agents, mixed-load clean (28 ms idle-cohort, PSI 0) |
 
 Scenario math from the model in this folder (defaults now reflect the
 current deployed posture). History and remaining levers, in order of
@@ -45,15 +46,24 @@ on-demand, 2 vCPU/2 GB requests).
    controllers stay on a small on-demand `system-pool`.
    *(terraform `sandbox-pool` + chart `sandbox.tolerations/nodeSelector`)*
 
-Result: ~**$0.75–1.00/agent** at current single-node scale; marginal
-$/agent → **~$0.50** as sandbox nodes are added (fixed costs amortize).
+4. **Measured, right-sized requests** — 100m / 256 MiB (steady-state RSS
+   is 248 MiB), limits 2 vCPU / 2 GiB. Answered by the swap experiment's
+   direct measurement. *(was TODO #4)*
+5. **Adaptive idle suspension** — see roadmap item below (Level 1 shipped).
+6. **LSSD swap sandbox pool** — Spot `n2d-standard-8` + dedicated local-SSD
+   swap; 62 PVC-backed agents/node (3.9×), swap as the safety net that
+   makes 256 MiB requests burst-proof. *(see "Productionized" below)*
+
+Result history: $12.88 → ~$0.75–1.00 (Spot/shape/requests) →
+**floor ~$0.14/agent with the swap posture** (2026-07-17). Marginal slot
+cost: $5.57 → $1.50.
 
 ## TODO — next levers, in order
 
-4. **Measure, then tighten requests further.** Instrument real usage
-   (`kubectl top` / VPA recommendations on busy agents). If idle RSS is
-   well under 1 Gi, dropping the RAM request directly multiplies density.
-   Exit: a load test justifying the numbers in `values.yaml`.
+4. ~~**Measure, then tighten requests further.**~~ **DONE (2026-07-17):**
+   measured 248 MiB steady-state RSS; requests now 100m/256 MiB (values.yaml).
+   Remaining headroom: sub-100m CPU requests with swap-backed overcommit
+   (pushes past the 62/node CPU ceiling; needs a busier mixed-load sweep).
 5. ~~**Adaptive idle timeout.**~~ **DONE (2026-07-17, Level 1).** The
    sweeper now uses a 15 s base tail for isolated requests and a 2 m tail
    while a conversation is active (two activities within `activeTimeout`);
@@ -96,20 +106,25 @@ $/agent falls steeply while fixed costs (cluster fee, system pool, warm
 spares) amortize, then **plateaus at the marginal cost** — with the current
 posture that plateau is reached by ~10k agents:
 
+Updated 2026-07-17 for the deployed swap posture (n2d-standard-8 Spot +
+LSSD, 62 slots/node):
+
 | agents | Spot nodes | clusters | $/month | $/agent |
 |---|---|---|---|---|
-| 100 | 1 | 1 | $230 | $2.30 |
-| 1,000 | 3 | 1 | $481 | $0.48 |
-| 10,000 | 29 | 1 | $3.5k | $0.35 |
-| 100,000 | 287 | 1 | $33.7k | $0.34 |
-| 1,000,000 | 2,865 | ~10 | $337k | **$0.34** |
+| 100 | 1 | 1 | $223 | $2.23 |
+| 1,000 | 1 | 1 | $295 | $0.30 |
+| 10,000 | 7 | 1 | $1.6k | $0.16 |
+| 100,000 | 68 | 1 | $14.5k | **$0.14** |
+| 1,000,000 | 676 | ~10 | $144k | **$0.14** |
 
-The plateau decomposes as **$0.256 compute** (duty-cycle share of a Spot
-slot) + **$0.080 disk** — so at scale the levers change: the idle timeout
-(TODO #5) attacks the compute share, while **disk becomes the irreducible
-per-agent floor** (scale-invariant; verify PD minimum-size rounding and
-consider cheaper archival tiers for long-suspended users). At ~$4M/yr spend,
-negotiated/committed discounts move every number.
+(Pre-swap posture for comparison: $0.34 plateau, $337k/mo at 1M.)
+
+The plateau now decomposes as **~$0.063 compute** (duty-cycle share of a
+$1.50 slot) + **$0.080 disk** — disk is the MAJORITY of the floor. The
+next lever ranking flips accordingly: PVC cost (minimum-size rounding,
+cheaper tiers, archival snapshots for dormant users) now outranks every
+compute optimization. At ~$1.7M/yr spend for 1M agents, negotiated
+discounts move every number.
 
 Honesty about the model at 1M: it assumes linear infrastructure. Reality
 adds: sharding across ~10+ clusters (1M Sandboxes+Claims+PVCs exceed a
