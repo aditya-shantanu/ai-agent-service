@@ -11,12 +11,14 @@ import (
 
 	"github.com/adityashantanu/ai-agent-service/internal/auth"
 	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
+	"github.com/adityashantanu/ai-agent-service/internal/telegram"
 )
 
 type Handlers struct {
 	Provisioner *sandbox.Provisioner
 	Lifecycle   *sandbox.Lifecycle
 	Resolver    *sandbox.Resolver
+	Telegram    *telegram.Injector // nil disables telegram endpoints
 
 	ProvisionTimeout time.Duration
 	WakeTimeout      time.Duration
@@ -184,6 +186,56 @@ func (h *Handlers) RotateToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"userId": userID, "token": token})
+}
+
+// SetTelegramToken handles PUT /api/v1/users/{id}/telegram-token.
+func (h *Handlers) SetTelegramToken(w http.ResponseWriter, r *http.Request) {
+	if h.Telegram == nil {
+		writeErr(w, http.StatusNotImplemented, "telegram support disabled")
+		return
+	}
+	var body struct {
+		Token        string `json:"token"`
+		AllowedUsers string `json:"allowedUsers"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Token == "" {
+		writeErr(w, http.StatusBadRequest, "body must be {\"token\": \"...\", \"allowedUsers\": \"id1,id2\"}")
+		return
+	}
+	userID := r.PathValue("id")
+	if err := h.Telegram.SetToken(r.Context(), userID, body.Token, body.AllowedUsers); err != nil {
+		if errors.Is(err, sandbox.ErrUserNotFound) {
+			writeErr(w, http.StatusNotFound, "user not found")
+			return
+		}
+		slog.Error("telegram inject", "user", userID, "err", err)
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"userId":        userID,
+		"telegram":      true,
+		"suspendExempt": true,
+		"note":          "bot connected in-pod; user is now exempt from idle suspension",
+	})
+}
+
+// DeleteTelegramToken handles DELETE /api/v1/users/{id}/telegram-token.
+func (h *Handlers) DeleteTelegramToken(w http.ResponseWriter, r *http.Request) {
+	if h.Telegram == nil {
+		writeErr(w, http.StatusNotImplemented, "telegram support disabled")
+		return
+	}
+	userID := r.PathValue("id")
+	if err := h.Telegram.RemoveToken(r.Context(), userID); err != nil {
+		if errors.Is(err, sandbox.ErrUserNotFound) {
+			writeErr(w, http.StatusNotFound, "user not found")
+			return
+		}
+		h.errStatus(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"userId": userID, "telegram": false, "suspendExempt": false})
 }
 
 // DeleteUser handles DELETE /api/v1/users/{id}.

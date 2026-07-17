@@ -16,6 +16,7 @@ import (
 	"github.com/adityashantanu/ai-agent-service/internal/proxy"
 	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
 	"github.com/adityashantanu/ai-agent-service/internal/server"
+	"github.com/adityashantanu/ai-agent-service/internal/telegram"
 )
 
 func main() {
@@ -48,10 +49,20 @@ func main() {
 	}
 	lifecycle := &sandbox.Lifecycle{Clients: clients, Namespace: cfg.Namespace, Resolver: resolver}
 
+	injector := &telegram.Injector{
+		Clients:     clients,
+		Namespace:   cfg.Namespace,
+		Resolver:    resolver,
+		Lifecycle:   lifecycle,
+		Exec:        &telegram.SPDYExecRunner{Clients: clients},
+		WakeTimeout: cfg.WakeTimeout,
+	}
+
 	handlers := &api.Handlers{
 		Provisioner:      provisioner,
 		Lifecycle:        lifecycle,
 		Resolver:         resolver,
+		Telegram:         injector,
 		ProvisionTimeout: cfg.ProvisionTimeout,
 		WakeTimeout:      cfg.WakeTimeout,
 	}
