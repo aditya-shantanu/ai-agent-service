@@ -14,11 +14,21 @@ import (
 	"github.com/adityashantanu/ai-agent-service/internal/telegram"
 )
 
+// ActivityTracker is the part of the idle tracker the API must drive:
+// a re-created user must start with a fresh idle clock (Touch) and a deleted
+// user's stale entry must not survive to insta-suspend a future namesake
+// (Forget).
+type ActivityTracker interface {
+	Touch(user string)
+	Forget(user string)
+}
+
 type Handlers struct {
 	Provisioner *sandbox.Provisioner
 	Lifecycle   *sandbox.Lifecycle
 	Resolver    *sandbox.Resolver
 	Telegram    *telegram.Injector // nil disables telegram endpoints
+	Activity    ActivityTracker    // nil = no idle tracking (tests)
 
 	ProvisionTimeout time.Duration
 	WakeTimeout      time.Duration
@@ -97,6 +107,11 @@ func (h *Handlers) CreateUser(w http.ResponseWriter, r *http.Request) {
 		resp.Note = "user already exists; rotate the token via POST /api/v1/users/{id}/token if needed"
 		writeJSON(w, http.StatusOK, resp)
 		return
+	}
+	// Fresh user: reset any stale idle-clock entry left by a deleted
+	// namesake so the sweeper can't insta-suspend the new sandbox.
+	if h.Activity != nil {
+		h.Activity.Touch(body.UserID)
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), h.ProvisionTimeout)
@@ -243,6 +258,9 @@ func (h *Handlers) DeleteUser(w http.ResponseWriter, r *http.Request) {
 	if err := h.Provisioner.DeleteUser(r.Context(), r.PathValue("id")); err != nil {
 		h.errStatus(w, err)
 		return
+	}
+	if h.Activity != nil {
+		h.Activity.Forget(r.PathValue("id"))
 	}
 	writeJSON(w, http.StatusOK, map[string]string{
 		"userId": r.PathValue("id"),

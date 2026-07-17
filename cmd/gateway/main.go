@@ -58,16 +58,18 @@ func main() {
 		WakeTimeout: cfg.WakeTimeout,
 	}
 
+	tracker := idle.NewTracker()
+
 	handlers := &api.Handlers{
 		Provisioner:      provisioner,
 		Lifecycle:        lifecycle,
 		Resolver:         resolver,
 		Telegram:         injector,
+		Activity:         tracker,
 		ProvisionTimeout: cfg.ProvisionTimeout,
 		WakeTimeout:      cfg.WakeTimeout,
 	}
 
-	tracker := idle.NewTracker()
 	userProxy := &proxy.Proxy{
 		Resolver:      resolver,
 		Lifecycle:     lifecycle,

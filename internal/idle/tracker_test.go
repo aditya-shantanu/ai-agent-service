@@ -155,3 +155,33 @@ func TestSweepSkipsExemptUsers(t *testing.T) {
 		t.Fatalf("exemption not overridden: %s", m)
 	}
 }
+
+// Regression: a user deleted and later re-created with the same ID must not
+// inherit the old entry's lastActivity — the stale clock caused the sweeper
+// to insta-suspend freshly provisioned sandboxes (found by simulate-users).
+func TestRecreatedUserGetsFreshIdleClock(t *testing.T) {
+	s, tracker, clients, now := newSuspenderFixture(t)
+	seedReadyUser(t, clients, "phoenix", false)
+	ctx := context.Background()
+
+	// User active, then goes stale.
+	tracker.Touch("phoenix")
+	*now = now.Add(2 * time.Hour)
+
+	// User deleted (API calls Forget), then re-created (API calls Touch).
+	tracker.Forget("phoenix")
+	tracker.Touch("phoenix")
+
+	// Sweep immediately after re-create: must NOT suspend.
+	s.SweepOnce(ctx)
+	if m := modeOf(t, clients, "phoenix"); m != sandboxv1beta1.SandboxOperatingModeRunning {
+		t.Fatalf("freshly re-created user was suspended: %s", m)
+	}
+
+	// And the normal idle path still works afterwards.
+	*now = now.Add(11 * time.Minute)
+	s.SweepOnce(ctx)
+	if m := modeOf(t, clients, "phoenix"); m != sandboxv1beta1.SandboxOperatingModeSuspended {
+		t.Fatalf("re-created user never suspends: %s", m)
+	}
+}
