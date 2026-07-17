@@ -157,7 +157,7 @@ GKE deployment: `docs/gke.md`.
 | M4 Proxy + wake + idle suspend | ✅ wake hold ~11s observed on kind |
 | M5 Telegram token injection | ✅ inject/remove + suspend exemption |
 | M6 Helm chart + e2e | ✅ `make e2e` — 10/10 |
-| M7 GKE (`gke-ai-eco-dev`) | ⬜ |
+| M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e 10/10, wake ~20s, NetworkPolicy enforced |
 
 ## Design decisions & caveats
 
