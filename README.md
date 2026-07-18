@@ -202,6 +202,10 @@ make e2e                    # verify: 11-check suite
 cp .env.example .env        # fill in GEMINI_API_KEY (file is gitignored)
 make set-provider-key       # loads .env into the cluster, cycles warm spares
 
+# Interactive console (kind or GKE): create/list/suspend/resume/delete
+# agents, chat, run e2e, deploy — menu-driven, loops until you quit:
+hack/console.sh
+
 # PRODUCTION: one command does everything (Terraform infra, images, ESO,
 # Secret Manager key push, swap pool, helm) — see docs/gke.md
 make deploy-gke
