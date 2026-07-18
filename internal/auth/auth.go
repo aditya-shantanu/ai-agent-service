@@ -38,6 +38,13 @@ func VerifyToken(token, storedSHA256Hex string) bool {
 	return subtle.ConstantTimeCompare([]byte(presented), []byte(storedSHA256Hex)) == 1
 }
 
+// SessionCookie is the gateway's own browser-session cookie: the proxy sets
+// it (path-scoped to /u/{user}) after a successful ?token= request, because
+// browsers drop the query param on every subsequent navigation, redirect,
+// asset load and fetch(). It holds the same bearer token and is verified
+// the same way; it is never forwarded upstream.
+const SessionCookie = "hermes_gw_token"
+
 // BearerFromRequest extracts a bearer token from the Authorization header or,
 // as a fallback for browser WebSocket clients, the ?token= query parameter.
 func BearerFromRequest(r *http.Request) string {
@@ -46,6 +53,19 @@ func BearerFromRequest(r *http.Request) string {
 		return strings.TrimPrefix(h, "Bearer ")
 	}
 	return r.URL.Query().Get("token")
+}
+
+// TokenFromRequest is BearerFromRequest plus the gateway session cookie —
+// the user-proxy credential order: header, query param, cookie. The admin
+// API deliberately keeps the stricter BearerFromRequest.
+func TokenFromRequest(r *http.Request) string {
+	if tok := BearerFromRequest(r); tok != "" {
+		return tok
+	}
+	if c, err := r.Cookie(SessionCookie); err == nil {
+		return c.Value
+	}
+	return ""
 }
 
 // RequireAdmin wraps a handler with static-admin-token auth.

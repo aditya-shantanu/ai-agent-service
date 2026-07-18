@@ -5,6 +5,11 @@ Two surfaces on one port (default `:8080`):
 - **Management** `/api/v1/*` — admin bearer token (`hermes-gateway-admin` Secret).
 - **User proxy** `/u/{user}/**` — per-user bearer token (returned once at
   create/rotate), via `Authorization: Bearer …` or `?token=` (for browsers).
+  A valid `?token=` is promoted to a `/u/{user}`-scoped HttpOnly session
+  cookie (`hermes_gw_token`) so browser navigations, redirects, SPA assets
+  and fetches — which all drop the query param — stay authenticated. The
+  cookie holds the same token, is verified per request, is never forwarded
+  upstream, and dies with token rotation.
 
 ## Management
 
@@ -31,6 +36,12 @@ User IDs: DNS-1123 label, max 40 chars (`^[a-z0-9]([a-z0-9-]{0,38}[a-z0-9])?$`).
 
 Behavior:
 
+- **Browser dashboard flow**: opening `/u/{user}/?token=…` 302s to the
+  Hermes login page (`/u/{user}/login`) — the proxy re-anchors upstream
+  redirects under the user's subtree, sends `X-Forwarded-Prefix` so Hermes
+  self-prefixes URLs/cookies/assets, and steers the basic-provider
+  auto-SSO redirect away from Hermes' OAuth-only `/auth/login` route
+  (which 500s for password auth in v2026.7.7.2).
 - **Wake-on-connect**: requests against a suspended agent are held (≤60s)
   while it resumes; timeout → `503` + `Retry-After: 10`.
 - WebSockets and SSE stream through; open sockets count as activity and

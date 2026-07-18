@@ -78,9 +78,26 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"internal"}`, http.StatusInternalServerError)
 		return
 	}
-	if !auth.VerifyToken(auth.BearerFromRequest(r), ua.TokenSHA256) {
+	tok := auth.TokenFromRequest(r)
+	if !auth.VerifyToken(tok, ua.TokenSHA256) {
 		http.Error(w, `{"error":"unauthorized"}`, http.StatusUnauthorized)
 		return
+	}
+	// Browser bootstrap: a valid ?token= is promoted to a path-scoped
+	// session cookie, because the browser drops the query param on every
+	// redirect, asset load and SPA fetch that follows. Same token, same
+	// constant-time verification on every request; rotation invalidates it.
+	if r.URL.Query().Get("token") == tok {
+		if c, err := r.Cookie(auth.SessionCookie); err != nil || c.Value != tok {
+			http.SetCookie(w, &http.Cookie{
+				Name:     auth.SessionCookie,
+				Value:    tok,
+				Path:     "/u/" + userID,
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				Secure:   r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"),
+			})
+		}
 	}
 
 	// Wake-on-connect: hold the request while the sandbox resumes.
@@ -117,12 +134,26 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			pr.Out.URL.Path = "/" + rest
 			pr.Out.URL.RawPath = ""
 			pr.SetXForwarded()
+			// Hermes honors X-Forwarded-Prefix natively (redirect Locations,
+			// cookie Path scoping, OAuth redirect_uri, SPA asset URLs) — tell
+			// it where its subtree is mounted.
+			pr.Out.Header.Set("X-Forwarded-Prefix", "/u/"+userID)
 
 			// Never forward platform credentials upstream...
 			pr.Out.Header.Del("Authorization")
 			q := pr.Out.URL.Query()
 			q.Del("token")
 			pr.Out.URL.RawQuery = q.Encode()
+			// ...including the gateway session cookie (Hermes' own
+			// cookies — sso_attempt, login session — must flow).
+			if cookies := pr.In.Cookies(); len(cookies) > 0 {
+				pr.Out.Header.Del("Cookie")
+				for _, c := range cookies {
+					if c.Name != auth.SessionCookie {
+						pr.Out.AddCookie(c)
+					}
+				}
+			}
 			// ...but inject the shared key for the OpenAI-compatible API.
 			if injectAPIKey {
 				pr.Out.Header.Set("Authorization", "Bearer "+p.APIKey)
@@ -134,6 +165,17 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				pr.Out.Header.Del("Origin")
 			}
 		},
+		// Hermes issues host-relative redirects (e.g. the dashboard's
+		// unauthenticated 302 -> /auth/login). Un-prefixed they escape the
+		// user's /u/{id}/ subtree and 404 on the gateway mux, so re-anchor
+		// them. Absolute redirects to external hosts pass through untouched.
+		ModifyResponse: func(resp *http.Response) error {
+			resp.Header.Set("Location", rewriteRedirect(resp.Header.Get("Location"), userID))
+			if resp.Header.Get("Location") == "" {
+				resp.Header.Del("Location")
+			}
+			return nil
+		},
 		Transport:     p.transport,
 		FlushInterval: -1, // immediate flush: SSE + streaming chat
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
@@ -143,6 +185,39 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		},
 	}
 	rp.ServeHTTP(w, r)
+}
+
+// rewriteRedirect re-anchors an upstream redirect under /u/{user}. Only
+// host-relative Locations (path-absolute, no host) are rewritten; empty,
+// external, and unparseable values are returned as-is.
+//
+// It also defuses an upstream trap (Hermes v2026.7.7.2): the dashboard's
+// auto-SSO middleware 302s first-time unauthenticated visits to
+// /auth/login?provider=basic — but BasicAuthProvider has no OAuth redirect
+// flow, so that route raises NotImplementedError (500). The working page is
+// the /login interstitial (which POSTs /auth/password-login), so we send
+// browsers there directly. OAuth providers (provider != basic) are
+// untouched.
+func rewriteRedirect(loc, userID string) string {
+	if loc == "" {
+		return loc
+	}
+	u, err := url.Parse(loc)
+	if err != nil || u.Host != "" || u.Scheme != "" || !strings.HasPrefix(u.Path, "/") {
+		return loc
+	}
+	prefix := "/u/" + userID
+	if u.Path != prefix && !strings.HasPrefix(u.Path, prefix+"/") {
+		u.Path = prefix + u.Path
+	}
+	if u.Path == prefix+"/auth/login" {
+		if q := u.Query(); q.Get("provider") == "basic" {
+			q.Del("provider")
+			u.Path = prefix + "/login"
+			u.RawQuery = q.Encode()
+		}
+	}
+	return u.String()
 }
 
 // splitUserPath parses /u/{user}/rest... -> (user, "rest...", true).

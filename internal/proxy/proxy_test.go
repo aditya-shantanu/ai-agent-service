@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -209,6 +210,110 @@ func TestProxyAPIKeyInjection(t *testing.T) {
 	}
 	if up.lastAuth != "Bearer "+apiKey {
 		t.Errorf("expected platform key injected, got %q", up.lastAuth)
+	}
+}
+
+// The dashboard's unauthenticated 302 must be re-anchored under /u/{user}
+// (or the browser follows it out of the user's subtree and 404s on the
+// gateway mux — found via the GKE console: rotate token -> open dashboard
+// -> 404), and the broken basic-provider auto-SSO target must be steered
+// to the /login interstitial instead of the 500ing /auth/login route.
+func TestProxyRedirectRewritten(t *testing.T) {
+	var gotPrefix string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPrefix = r.Header.Get("X-Forwarded-Prefix")
+		w.Header().Set("Location", "/auth/login?provider=basic&next=%2F")
+		w.WriteHeader(http.StatusFound)
+	}))
+	defer srv.Close()
+	p, _ := newProxyFixture(t, "Ready", upstreamPort(t, srv))
+
+	w := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/u/alice/?token="+userToken, nil)
+	p.ServeHTTP(w, r)
+	if w.Code != http.StatusFound {
+		t.Fatalf("code=%d body=%s", w.Code, w.Body)
+	}
+	if loc := w.Header().Get("Location"); loc != "/u/alice/login?next=%2F" {
+		t.Errorf("Location = %q, want /u/alice/login?next=%%2F", loc)
+	}
+	if gotPrefix != "/u/alice" {
+		t.Errorf("X-Forwarded-Prefix = %q, want /u/alice", gotPrefix)
+	}
+}
+
+// A valid ?token= must be promoted to a /u/{user}-scoped session cookie
+// (browsers drop the query param on every subsequent request), the cookie
+// must authenticate on its own, and it must never be forwarded upstream —
+// while Hermes' own cookies flow through.
+func TestProxySessionCookie(t *testing.T) {
+	var upCookies string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upCookies = r.Header.Get("Cookie")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	p, _ := newProxyFixture(t, "Ready", upstreamPort(t, srv))
+
+	// 1. ?token= request sets the scoped cookie.
+	w := httptest.NewRecorder()
+	p.ServeHTTP(w, httptest.NewRequest("GET", "/u/alice/?token="+userToken, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("token request: %d", w.Code)
+	}
+	var sc *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == auth.SessionCookie {
+			sc = c
+		}
+	}
+	if sc == nil || sc.Value != userToken || sc.Path != "/u/alice" || !sc.HttpOnly {
+		t.Fatalf("session cookie not set correctly: %+v", sc)
+	}
+
+	// 2. Cookie alone authenticates; ours is stripped upstream, Hermes' flows.
+	w = httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/u/alice/api/health", nil)
+	r.AddCookie(sc)
+	r.AddCookie(&http.Cookie{Name: "hermes_session", Value: "keep-me"})
+	p.ServeHTTP(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("cookie-auth request: %d body=%s", w.Code, w.Body)
+	}
+	if strings.Contains(upCookies, auth.SessionCookie) {
+		t.Errorf("gateway session cookie leaked upstream: %q", upCookies)
+	}
+	if !strings.Contains(upCookies, "hermes_session=keep-me") {
+		t.Errorf("upstream cookie dropped: %q", upCookies)
+	}
+
+	// 3. A wrong cookie is still a 401.
+	w = httptest.NewRecorder()
+	r = httptest.NewRequest("GET", "/u/alice/api/health", nil)
+	r.AddCookie(&http.Cookie{Name: auth.SessionCookie, Value: "stale-after-rotation"})
+	p.ServeHTTP(w, r)
+	if w.Code != http.StatusUnauthorized {
+		t.Errorf("bad cookie: %d, want 401", w.Code)
+	}
+}
+
+func TestRewriteRedirect(t *testing.T) {
+	cases := []struct{ loc, want string }{
+		{"", ""},                         // no redirect
+		{"/api/x", "/u/alice/api/x"},     // host-relative: rewritten
+		{"/u/alice/api", "/u/alice/api"}, // already prefixed
+		{"https://example.com/x", "https://example.com/x"}, // external: untouched
+		{"login", "login"}, // path-relative: untouched
+		// basic-provider auto-SSO trap -> /login interstitial (both forms)
+		{"/auth/login?provider=basic&next=%2F", "/u/alice/login?next=%2F"},
+		{"/u/alice/auth/login?provider=basic", "/u/alice/login"},
+		// real OAuth providers keep their /auth/login flow
+		{"/auth/login?provider=google&next=%2F", "/u/alice/auth/login?provider=google&next=%2F"},
+	}
+	for _, c := range cases {
+		if got := rewriteRedirect(c.loc, "alice"); got != c.want {
+			t.Errorf("rewriteRedirect(%q) = %q, want %q", c.loc, got, c.want)
+		}
 	}
 }
 
