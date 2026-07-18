@@ -27,7 +27,15 @@
       "Bash(gofmt -l *)",
       "Bash(export PATH=\"$HOME/bin:$PATH\")",
       "Bash(export PATH=\"$PATH:/usr/local/go/bin\")",
-      "Bash(export KUBECONFIG=/tmp/canary-verify-kubeconfig)"
+      "Bash(export KUBECONFIG=/tmp/canary-verify-kubeconfig)",
+      "Bash(kubectl wait *)",
+      "Bash(kubectl top *)",
+      "Bash(gcloud container node-pools list *)",
+      "Bash(gcloud container node-pools describe *)",
+      "Bash(helm list *)",
+      "Bash(helm template *)",
+      "Bash(helm lint *)",
+      "Bash(kind get *)"
     ]
   }
 }
