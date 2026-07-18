@@ -517,9 +517,11 @@ Designed and researched, deliberately not built yet:
      window all stay; only the annotation's *writer* changes. Run both
      paths in parallel behind a `cron.pushProvider` values flag until the
      upstream interface is declared stable, then delete `cronpeek.go`.
-- **Disk economics** — now the top cost lever (~60% of the at-scale floor):
-  verify PD minimum-size rounding, cheaper tiers, and archival snapshots for
-  long-dormant users (`costcalc/COST-REDUCTION.md`).
+- **Disk economics** — now the top cost lever (~60% of the at-scale floor).
+  Investigated 2026-07-17 (`investigations/resume-latency-and-storage.md`):
+  live-NFS Filestore REJECTED (SQLite/WAL hazard, 6–8× per-GiB); the
+  endgame is stage-in/stage-out (local SQLite + GCS cold store, floor
+  → ~\$0.075) with the `idle.activeTimeout` dial as the zero-code interim.
 - Fold the swap pool into Terraform when the provider exposes `swapConfig`;
   delete the idle rollback `sandbox-pool` after a quiet week.
 - TLS/domain in front of the gateway on GKE; gVisor node pool for sandbox
