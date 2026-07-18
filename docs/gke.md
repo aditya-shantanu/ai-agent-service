@@ -67,9 +67,20 @@ Note the e2e uses a port-forward, so it works before the LB is provisioned.
   outside dev.
 - Idle suspension is adaptive: 15s base tail, 10m active window on GKE
   (`idle.timeout` / `idle.activeTimeout`) — most same-day returns wake
-  sub-second from swap residency; cold resumes measure ~11–14s.
-- gVisor hardening: schedule sandboxes onto a `--sandbox type=gvisor` node
-  pool by adding `runtimeClassName: gvisor` to the SandboxTemplate podTemplate
-  — documented follow-up, not enabled by default.
+  sub-second from swap residency; cold resumes measure ~20–24s under
+  gVisor (~11–14s on the runc rollback pool).
+- **gVisor hardening is enabled by default** (2026-07-17): sandboxes run
+  under GKE Sandbox on `hermes-gvisor-pool` (`hack/gke-gvisor-pool.sh` —
+  same Spot n2d + LSSD-swap shape as the runc pool, plus
+  `--sandbox type=gvisor`), selected via `sandbox.runtimeClassName: gvisor`
+  in `values-gke.yaml`. GKE's `gvisor` RuntimeClass auto-adds the
+  `sandbox.gke.io/runtime` nodeSelector + toleration. Existing user
+  Sandboxes keep their stamped runc podTemplate until recreated; warm
+  spares recycle automatically. Rollback: comment out
+  `runtimeClassName` and cycle warm spares (pods fall back to
+  `hermes-swap-pool` via the shared `hermes-swap` label). Caveats:
+  `kubectl port-forward` to sandboxed pods is not supported (the gateway
+  data path is unaffected), and container-level memory metrics are
+  pod-level only. Cost/perf analysis: `costcalc/COST-REDUCTION.md`.
 - Do NOT enable autoscaling of the gateway (1-replica constraint, README
   decision 11).

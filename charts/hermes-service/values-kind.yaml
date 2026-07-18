@@ -5,3 +5,7 @@ warmPool:
 sandbox:
   storage:
     size: 1Gi
+  # NOTE: production (GKE) runs sandboxes under gVisor (values-gke.yaml).
+  # kind stays on runc: the Hermes image's s6-overlay setuid bootstrap does
+  # not elevate under kind's runsc (hack/kind-gvisor.sh is the experimental
+  # node setup if you want to retry as gVisor/kind evolve).

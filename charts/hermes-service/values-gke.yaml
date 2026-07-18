@@ -18,6 +18,12 @@ idle:
   activeTimeout: 10m
 
 sandbox:
+  # Kernel-syscall isolation: agents run inside gVisor (GKE Sandbox) on the
+  # hermes-gvisor-pool (hack/gke-gvisor-pool.sh). GKE's gvisor RuntimeClass
+  # auto-adds the sandbox.gke.io/runtime nodeSelector + toleration.
+  # Rollback: comment this out and cycle warm spares (pods land back on the
+  # runc swap pool via the hermes-swap selector below).
+  runtimeClassName: gvisor
   storage:
     storageClassName: ""   # GKE default (standard-rwo)
   # Sandboxes run on the swap-enabled Spot pool (hack/gke-swap-pool.sh;

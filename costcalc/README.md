@@ -40,9 +40,9 @@ floor $/agent         = slot-cost * duty * peak + disk     (fixed costs amortize
 
 | Assumption | Default | Source |
 |---|---|---|
-| Per-agent requests | 100m vCPU / 256 MiB (limits 2 / 2 GiB) | measured: steady-state RSS ~248 MiB |
-| Node | Spot `n2d-standard-8` + $36/mo LSSD (swap) | deployed swap pool |
-| Resume / suspend | **12,000 ms / 2,000 ms** | measured 2026-07-17 post probe-tuning: GKE 10.7–13.6 s (kind: 4.0 s — the GKE delta is PD attach) |
+| Per-agent requests | 100m vCPU / 256 MiB (limits 2 / 2 GiB) | measured: steady-state RSS ~248 MiB runc / ~283 MiB pod-level under gVisor |
+| Node | Spot `n2d-standard-8` + $36/mo LSSD (swap), **gVisor** (no extra charge) | deployed gVisor pool (`hack/gke-gvisor-pool.sh`) |
+| Resume / suspend | **22,000 ms / 2,000 ms** | measured 2026-07-17 under gVisor: GKE 20–24 s (runc was 10.7–13.6 s; kind 4.0 s — deltas are PD attach + Sentry/import boot) |
 | Idle tails | 15 s isolated / **600 s** conversation | deployed adaptive policy (10 m GKE window) |
 | Usage | 10 msgs/day in 3 conversations, 1 min work, 30 s gaps | stated assumptions |
 | Traffic | 16 h window, 2× peak factor | assumption |

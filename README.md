@@ -70,7 +70,7 @@ flowchart LR
             subgraph peruser [per user]
                 claim[SandboxClaim<br/>hermes-alice]
                 sb[Sandbox<br/>hermes-pool-xxxxx]
-                pod["Pod: hermes agent<br/>:9119 dashboard, :8642 OpenAI API<br/>+ messaging gateway (Telegram)<br/>(on Spot n2d + local-SSD swap pool)"]
+                pod["Pod: hermes agent<br/>:9119 dashboard, :8642 OpenAI API<br/>+ messaging gateway (Telegram)<br/>(gVisor-sandboxed, on Spot n2d<br/>+ local-SSD swap pool)"]
                 pvc[("PVC /opt/data<br/>sessions·memory·skills·.env")]
                 svc[Headless Service<br/>stable DNS]
             end
@@ -154,7 +154,7 @@ sequenceDiagram
     GW->>GW: verify token vs claim annotation (constant-time)
     GW->>K8s: patch operatingMode=Running (per-user mutex)
     K8s->>Pod: recreate pod, reattach same PVC
-    GW->>GW: hold request until Ready (≤ wakeTimeout — 4s kind / ~12s GKE measured)
+    GW->>GW: hold request until Ready (≤ wakeTimeout — 4s kind / ~20-24s GKE+gVisor measured)
     GW->>Pod: proxy request (platform API key injected)
     Pod-->>User: response — history & login session intact
 ```
@@ -190,7 +190,7 @@ sequenceDiagram
 | Images | built locally, `kind load`ed | pushed to Artifact Registry (`make images-push`) |
 | Exposure | `kubectl port-forward` | LoadBalancer (put TLS/Ingress in front for real traffic) |
 | NetworkPolicy | enforced (kube-network-policies) | enforced (Dataplane V2) |
-| Sandbox nodes | kind node | **Spot `n2d-standard-8` + local-SSD swap** (62 agents/node measured) |
+| Sandbox nodes | kind node (runc) | **gVisor (GKE Sandbox) on Spot `n2d-standard-8` + local-SSD swap** (62 agents/node measured) |
 | Provider keys | `.env` → cluster Secret (`make set-provider-key`) | `.env` → Secret Manager → ESO sync (keyless Workload Identity) |
 
 ```sh
@@ -279,6 +279,7 @@ tab closes.
 | M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e green, NetworkPolicy enforced |
 | M8 Cron-aware wake | ✅ e2e check #9 — scheduled job wakes a suspended sandbox, zero user traffic |
 | Infra as Terraform + Secret Manager keys | ✅ from-zero rebuild validated; ESO/Workload Identity sync |
+| M9 gVisor sandbox hardening (GKE Sandbox) | ✅ e2e 11/11 on `hermes-gvisor-pool`; swap density mechanism verified under gVisor; $/agent floor unchanged |
 | Cost posture (Spot, shape, measured requests, adaptive suspension, **LSSD swap**) | ✅ \$12.88 → **\$0.14/agent at-scale floor** — `costcalc/COST-REDUCTION.md` |
 
 ## Validations performed
@@ -295,6 +296,7 @@ inferred. Automated suites are re-runnable via the listed entry points.
 | NetworkPolicy is the isolation boundary (unlabeled pods blocked, gateway label admitted) | kind (kube-network-policies) + GKE (Dataplane V2) | in m2 script + manual GKE check |
 | GKE production deploy (AR images, warm pool 72s to Ready, e2e 11/11, wake ~16-20s over PD reattach) | GKE `gke-ai-eco-dev` | `make deploy-gke` + `hack/e2e.sh` |
 | **Swap density + mixed load (2026-07-17)**: 62 PVC-backed agents on one n2d-standard-8 Spot node (3.9×), 20% concurrently active → idle cohort 28ms avg, memory PSI 0.00; earlier no-PVC run: 198 agents/node, ~29GB paged to SSD, 117–195ms swapped responses | GKE swap pool | `hack/swap-experiment/` + `hack/gke-swap-pool.sh` |
+| **gVisor (GKE Sandbox) migration (2026-07-17)**: e2e 11/11 on the gVisor pool (warm adoption 2s, wake 20–24s, cron wake, telegram exec-inject, cascade delete); s6 setuid bootstrap elevates (`euid=0`) under GKE's managed runsc; forced 24 GiB memory pressure → 5.1 GB of memfd sandbox memory paged to LSSD, all pods healthy, PSI ~0.3, idle-cohort 17–88ms; CPU benchmark parity, small-file I/O 1.6×, +15% pod memory | GKE `hermes-gvisor-pool` | `hack/gke-gvisor-pool.sh` + `hack/e2e.sh` + `make simulate-users` |
 | **From-zero Terraform rebuild (2026-07-17)**: `terraform apply` (cluster/WI/AR/GSM/IAM) → full deploy chain → e2e 11/11 → real Gemini chat → memory recalled across suspend/kill/wake in 25s (key synced from Secret Manager via ESO/Workload Identity) | GKE, fresh cluster | `make deploy-gke` |
 
 ### Durability deep-dive (2026-07-17): does everything survive kill/recreate?
@@ -354,6 +356,7 @@ extra LLM turn of dead air at the start of a session.
 | **Cron-aware wake** | ≈ neutral — *protects* the savings (jobs no longer force always-on pods) | Jobs can fire up to ~1 min late; jobs longer than the 2 m grace risk interruption | Hermes boot catch-up fires missed jobs once; `cron.grace` is a knob; Telegram users are exempt entirely |
 | **Startup tuning** (aggressive readiness probe + GKE image streaming, 2026-07-17) | 🟢 ↓ slightly (shorter resumes = less pod-time) | ✅ cold resume **16–25 s → ~11–14 s on GKE** (remaining chunk is PD attach — see `investigations/`) and **12 s → 4 s on kind**; more consistent | — |
 | **Production active window 10 m** (GKE) | 🔴 ↑ ≈ **+$0.06** — accepted | ✅ most same-day returns land on a swapped-resident agent: **sub-second wake instead of cold resume** | Window is a per-tier values knob; swap pool makes residents cheap |
+| **gVisor sandboxing** (GKE Sandbox, 2026-07-17) | ≈ neutral — no GCP charge, 62 slots/node unchanged (CPU-bound), swap still reclaims Sentry memfd memory (verified under 24 GiB forced pressure) | Cold resume **11–14 s → 20–24 s** (+Sentry boot & import gofer tax); +15% memory/agent eats *future* memory-bound squeeze headroom | Agents get kernel-syscall isolation on top of NetworkPolicy; resume roadmap (stage-in/out storage, boot tuning) attacks the same delta; see `costcalc/COST-REDUCTION.md` |
 
 No single row gets to <$1: the journey is a waterfall —
 **$270 always-on → $12.88 (suspend) → $1.59 (requests+shape) → $0.75 (Spot)
@@ -423,9 +426,9 @@ Designed and researched, deliberately not built yet:
   → ~\$0.075) with the `idle.activeTimeout` dial as the zero-code interim.
 - Fold the swap pool into Terraform when the provider exposes `swapConfig`;
   delete the idle rollback `sandbox-pool` after a quiet week.
-- TLS/domain in front of the gateway on GKE; gVisor node pool for sandbox
-  hardening; webhook-mode Telegram (suspendable bot users); gateway
-  scale-out (also gated on the Envoy plan).
+- TLS/domain in front of the gateway on GKE; webhook-mode Telegram
+  (suspendable bot users); gateway scale-out (also gated on the Envoy
+  plan). *(gVisor sandbox hardening: done 2026-07-17 — see Status M9.)*
 
 ## Development
 

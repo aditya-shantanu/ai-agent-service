@@ -10,7 +10,7 @@ GCP_PROJECT ?= gke-ai-eco-dev
 AR_REGION   ?= us-central1
 AR_REPO     ?= $(AR_REGION)-docker.pkg.dev/$(GCP_PROJECT)/hermes-service
 
-.PHONY: build test lint validate-hermes-image image kind-up kind-load deploy-kind dev e2e simulate-users set-provider-key undeploy sandbox-install images-push deploy-gke gke-credentials infra-apply infra-destroy eso-install gsm-push-key gke-swap-pool help
+.PHONY: build test lint validate-hermes-image image kind-up kind-load deploy-kind dev e2e simulate-users set-provider-key undeploy sandbox-install images-push deploy-gke gke-credentials infra-apply infra-destroy eso-install gsm-push-key gke-swap-pool gke-gvisor-pool help
 
 build: ## Build the gateway binary
 	go build -o bin/gateway ./cmd/gateway
@@ -90,11 +90,15 @@ gsm-push-key: ## Push local .env values to Google Secret Manager (container+IAM 
 	@python3 -c "import json; print(json.dumps(dict(l.strip().split('=',1) for l in open('.env') if l.strip() and not l.startswith('#'))))" \
 	  | gcloud secrets versions add $(GSM_SECRET) --project=$(GCP_PROJECT) --data-file=-
 
-gke-swap-pool: ## Ensure the swap-enabled Spot sandbox pool exists (gcloud until TF supports swapConfig)
+gke-swap-pool: ## Ensure the swap-enabled Spot sandbox pool exists (runc rollback pool)
 	@gcloud container node-pools describe hermes-swap-pool --cluster hermes-svc --zone us-central1-a >/dev/null 2>&1 \
 	  && echo "hermes-swap-pool already exists" || hack/gke-swap-pool.sh
 
-deploy-gke: infra-apply images-push sandbox-install eso-install gsm-push-key gke-swap-pool ## PRODUCTION MODE: full GKE setup + deploy
+gke-gvisor-pool: ## Ensure the gVisor (GKE Sandbox) swap-enabled Spot sandbox pool exists
+	@gcloud container node-pools describe hermes-gvisor-pool --cluster hermes-svc --zone us-central1-a >/dev/null 2>&1 \
+	  && echo "hermes-gvisor-pool already exists" || hack/gke-gvisor-pool.sh
+
+deploy-gke: infra-apply images-push sandbox-install eso-install gsm-push-key gke-gvisor-pool ## PRODUCTION MODE: full GKE setup + deploy
 	$(MAKE) gke-credentials
 	helm upgrade --install hermes-service charts/hermes-service \
 	  -n $(NAMESPACE) --create-namespace -f charts/hermes-service/values-gke.yaml

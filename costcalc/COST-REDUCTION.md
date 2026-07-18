@@ -13,7 +13,7 @@ in `index.html` — change one and the whole model recomputes.
 | | Traffic window | 16 h / day |
 | | Peak-over-mean concurrency | 2× |
 | **Suspend / resume** | Suspend | 2,000 ms |
-| | Resume | 10,700–13,600 ms measured on GKE (4,000 ms kind — GKE delta is PD attach) |
+| | Resume | 20,000–24,000 ms measured on GKE under gVisor (runc was 10,700–13,600; 4,000 ms kind — deltas are PD attach + Sentry/import boot) |
 | | Idle tail — isolated message | 15 s |
 | | Idle tail — active conversation | 10 m on GKE (2 m kind) — deployed adaptive policy |
 | **Per agent** | Requests / limits | 100m, 256 MiB / 2 vCPU, 2 GiB (measured; Burstable for swap) |
@@ -21,10 +21,10 @@ in `index.html` — change one and the whole model recomputes.
 | **Hardware** | Sandbox nodes | Spot `n2d-standard-8` + dedicated-LSSD swap (~62 agent slots) |
 | | Fixed overhead | 2 warm spares + on-demand system node + cluster fee |
 | | Prices | GCP us-central1 list, Spot (as of 2026-07) |
-| **Measured** | Warm adoption | ≤ 2 s |
-| | Resume (observed) | ~11–14 s GKE / 4 s kind (post probe-tuning + image streaming) |
-| | Idle Hermes RSS | ~248 MiB |
-| | Density (PVC-backed, per node) | 62 agents, mixed-load clean (28 ms idle-cohort, PSI 0) |
+| **Measured** | Warm adoption | ≤ 2 s (unchanged under gVisor) |
+| | Resume (observed) | ~20–24 s GKE under gVisor (~11–14 s runc; 4 s kind) |
+| | Idle Hermes RSS | ~248 MiB runc / ~281–295 MiB pod-level under gVisor (+~15% Sentry+gofer) |
+| | Density (PVC-backed, per node) | 62 agents, mixed-load clean (28 ms idle-cohort, PSI 0) — unchanged under gVisor (CPU-bound ceiling) |
 
 Scenario math from the model in this folder (defaults now reflect the
 current deployed posture). History and remaining levers, in order of
@@ -178,3 +178,42 @@ PVCs; the dedicated-swap profile also requires ephemeral-storage LSSDs):
 - Rollback: flip `values-gke.yaml` selectors back to `hermes-sandbox`
   (the Terraform `sandbox-pool` is kept, idle, as instant rollback —
   ~$89/mo; delete it once the swap pool has a quiet week).
+
+## gVisor (GKE Sandbox) impact analysis (2026-07-17): floor unchanged at ~$0.14
+
+Sandboxes moved to `hermes-gvisor-pool` — same shape and price as the swap
+pool (Spot `n2d-standard-8` + dedicated-LSSD swap + image streaming), plus
+`--sandbox type=gvisor`. **GKE Sandbox itself has no SKU — GCP charges
+nothing extra for gVisor.** All numbers below measured on the live pool,
+not modeled:
+
+| Dimension | runc (before) | gVisor (measured) | $/agent effect |
+|---|---|---|---|
+| Node price | $93/mo Spot + LSSD | identical (same shape, no sandbox charge) | none |
+| Slots/node | 62 (CPU-request-bound) | **62 — unchanged**: ceiling is the 100m CPU request (6.2 vCPU), not memory; GKE's gvisor RuntimeClass sets no pod `overhead`, so scheduler math is identical | none |
+| Memory/agent | 248 MiB RSS | 281–295 MiB pod-level (+~15%); host-side Sentry+gofer ≈ 58 MiB/pod (12 runsc procs / 5 pods = 289 MiB) | none today — at 62 agents that's +~3.6 GB/node absorbed by the 318 GB swap headroom |
+| Swap compat | measured 5 GB paged | **verified**: gVisor guest memory is memfd-backed ⇒ host-swappable; forced 24 GiB of demand → 5.1 GB paged to LSSD, all pods healthy, PSI ~0.3, idle-cohort 17–88 ms | none — the density mechanism survives |
+| Resume | 11–14 s | **20–24 s** (+~9 s: PD attach unchanged ~6–8 s; container→Ready grew 2–3 s → ~8 s = Sentry boot + Python import gofer tax) | +~1% pod-time ≈ **+$0.001–0.003** — resume is paid 3×/day, sensitivity is cents by design |
+| CPU / I/O | — | CPU loop parity (0.30 vs 0.31 s); metadata-heavy small-file I/O ~1.6× slower (0.33 vs 0.20 s per 6k ops); SQLite WAL commits *faster* (Sentry write-back caching) | none — workload is LLM-bound |
+| Warm adoption | ≤2 s | ≤2 s (pods pre-exist; adoption is a label flip) | none |
+
+**Bottom line: kernel-syscall isolation for ~free in dollars.** The floor
+stays **~$0.14/agent**; the real prices are (a) cold resume grows one more
+LLM-turn of dead air (20–24 s — same mitigation roadmap as before:
+stage-in/stage-out storage attacks the PD-attach half, probe/boot tuning
+the rest), and (b) **latent headroom loss**: the +15% memory/agent shrinks
+the *future* memory-bound squeezes (the 198-agents/node no-PVC experiment
+would land ~15% lower under gVisor, and the sub-100m-CPU-request lever
+gets less room before the thrash cliff). Transitional cost only: the runc
+`hermes-swap-pool` (~$93/mo) stays up as instant rollback — delete it
+after a quiet week, same playbook as the swap migration.
+
+Caveats, honestly: GKE Sandbox blocks `kubectl port-forward` to sandboxed
+pods (unused — the gateway proxies via the headless Service) and
+container-level memory metrics (pod-level works — PSI/`memory.current`
+alerting, the open TODO, is unaffected). gVisor's write-back caching means
+an fsync ack does not guarantee host durability for *rootfs* writes
+(in-memory overlay); Hermes state lives on the PVC and survived the full
+e2e kill/recreate cycle, but a node crash mid-commit has a wider window
+than runc — acceptable for conversation state, worth re-checking if we
+ever store payments-grade data.

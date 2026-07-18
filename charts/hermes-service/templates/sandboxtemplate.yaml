@@ -59,6 +59,9 @@ spec:
       labels:
         app.kubernetes.io/part-of: hermes-service
     spec:
+      {{- with .Values.sandbox.runtimeClassName }}
+      runtimeClassName: {{ . }}
+      {{- end }}
       securityContext:
         runAsUser: 10000
         runAsGroup: 10000

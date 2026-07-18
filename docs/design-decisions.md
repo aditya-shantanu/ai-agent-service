@@ -32,9 +32,27 @@ Every load-bearing decision lives here. If you change one, update this list.
    matches neither podSelectors nor ipBlocks — the selector-scoped rule
    silently breaks all sandbox DNS on GKE (found via a failing real-LLM
    call; fixed and validated).*
-5. **The pod is the sandbox.** Hermes warns its terminal backend is
-   "local/unsandboxed"; intentional here — an agent can only affect its own
-   pod and PVC.
+5. **The pod is the sandbox — hardened with gVisor in production.** Hermes
+   warns its terminal backend is "local/unsandboxed"; intentional here — an
+   agent can only affect its own pod and PVC. On GKE, sandbox pods
+   additionally run under **gVisor** (GKE Sandbox, `runtimeClassName:
+   gvisor` in `values-gke.yaml`, pool: `hack/gke-gvisor-pool.sh`): agent
+   syscalls hit the userspace Sentry, not the host kernel, closing the
+   container-escape class NetworkPolicy can't. Measured cost (2026-07-17):
+   +~35–45 MiB pod memory (Sentry+gofer, ~15% over the 248 MiB runc RSS),
+   no CPU delta on the LLM-bound workload, metadata-heavy I/O ~1.6× slower
+   in absolute sub-second territory; $/agent floor unchanged (density is
+   CPU-request-bound, and Sentry memory is memfd-backed — host-swappable
+   to the LSSD like everything else). *Caveats: GKE Sandbox blocks
+   `kubectl port-forward` to sandboxed pods (our data path is
+   gateway→Service, unaffected) and silently drops metadata-server
+   traffic (already NetworkPolicy-blocked). kind stays on runc: the
+   Hermes image's s6-overlay setuid bootstrap does not elevate under
+   kind's runsc (works under GKE's managed gVisor — verified `euid=0`);
+   `hack/kind-gvisor.sh` is the experimental node setup if retrying.
+   Existing user Sandboxes keep their stamped runc podTemplate — they
+   migrate by Sandbox recreation (delete + re-provision), not by resume;
+   warm spares recycle automatically on template change.*
 
 ### Provisioning (agent-sandbox v0.5.2, pinned)
 
