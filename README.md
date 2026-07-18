@@ -340,14 +340,20 @@ For calibration: Hermes itself is not slow — an LLM reply takes ~5–15 s — 
 a sub-second wake is invisible, while a 16–25 s cold resume feels like one
 extra LLM turn of dead air at the start of a session.
 
-| Optimization | Cost effect | UX / other downside | Mitigation in place |
+| Optimization (in order applied) | $/agent after it (cumulative) | UX / other downside | Mitigation in place |
 |---|---|---|---|
-| **Suspend-when-idle** (the architecture) | $270 → <$1/agent — the premise | **Cold wake: 16–25 s of lag** when returning after an absence; nothing else survives criticism without this row being worth it | Adaptive window (below); login sessions + memory survive, so lag is the *only* symptom; wake ≈ one LLM turn |
-| **Warm pool** | Signup ~2 s instead of a cold start (UX win, not a trade) | Spares cost ~$3/mo total | — |
-| **Adaptive suspension** (15 s / 2 m windows) | Conversations pay resume+tail once, not per message | Strictly better than a fixed short window; vs always-on, returns after >2 m still hit the cold wake | `idle.activeTimeout` is a per-tier dial: 10–15 m ≈ +$0.06/agent for most returns landing warm (see `investigations/`) |
-| **Spot sandbox nodes** | ~−70% compute | Rare, *unplanned* 16–25 s stall mid-session on preemption; an in-flight turn can be dropped | Hermes flags sessions `restart_interrupted` and auto-resumes; gateway/controllers stay on-demand |
-| **LSSD swap + measured requests** (100m/256Mi) | 3.9× agents/node; slot $5.57 → $1.50 | Swapped-agent wake +100–400 ms (measured; invisible vs LLM); *theoretical* thrash if far more agents go active than modeled | Mixed-load tested clean at 20% concurrent (4× modeled peak); PSI alerting is the open TODO |
-| **Cron-aware wake** | Scheduled jobs no longer require an always-on pod | Jobs can fire up to ~1 min late; jobs longer than the 2 m grace risk interruption | Hermes boot catch-up fires missed jobs once; `cron.grace` is a knob; Telegram users are exempt entirely |
+| **Suspend-when-idle** (the architecture) | $270 → **$12.88** (21×) — big, but only the first step | **Cold wake: 16–25 s of lag** when returning after an absence | Login sessions + memory survive, so lag is the *only* symptom; wake ≈ one LLM turn |
+| **Warm pool** | ~neutral (~$3/mo spares) | None — signup drops to ~2 s (a UX *win*) | — |
+| **Right-sized requests + balanced machine shape** | → **$1.59** | Burst contention if many agents work at once (CPU throttling → slower replies at peak) | Limits keep 2 vCPU of burst headroom; mixed-load tested clean at 4× modeled peak |
+| **Spot sandbox nodes** | → **$0.75** | Rare, *unplanned* 16–25 s stall mid-session on preemption; an in-flight turn can be dropped | Hermes flags sessions `restart_interrupted` and auto-resumes; gateway/controllers stay on-demand |
+| **Adaptive suspension** (15 s / 2 m windows) | ~neutral in $ at deployed knobs — it buys *UX*: conversations pay the cold wake once, not per message | Returns after >2 m still hit the cold wake | `idle.activeTimeout` is a per-tier dial: 10–15 m ≈ +$0.06/agent for most returns landing warm (see `investigations/`) |
+| **LSSD swap + measured requests** (100m/256Mi) | → **$0.14 at-scale floor** (slot $5.57 → $1.50, 3.9× density) | Swapped-agent wake +100–400 ms (measured; invisible vs LLM); *theoretical* thrash if far more agents go active than modeled | Mixed-load tested clean at 20% concurrent; PSI alerting is the open TODO |
+| **Cron-aware wake** | ~neutral — it *protects* the savings (jobs no longer force always-on pods) | Jobs can fire up to ~1 min late; jobs longer than the 2 m grace risk interruption | Hermes boot catch-up fires missed jobs once; `cron.grace` is a knob; Telegram users are exempt entirely |
+
+No single row gets to <$1: the journey is a waterfall —
+**$270 always-on → $12.88 (suspend) → $1.59 (requests+shape) → $0.75 (Spot)
+→ $0.14 (swap, at scale)** — and each step added its own row of UX fine
+print above.
 
 **What the trade buys at scale**: $/agent falls as fixed costs amortize and
 plateaus at the marginal floor — **$2.23 at 100 agents, $0.30 at 1,000,
