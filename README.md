@@ -330,6 +330,31 @@ With a real `GEMINI_API_KEY` loaded via `make set-provider-key`:
   pre-seeds `hermes.defaultModel` (default `google/gemini-flash-latest`) via
   an init container; a fresh user chats with zero manual setup.
 
+## The cost/UX trade, honestly
+
+Every optimization below bought cost at a price — usually latency. The
+baseline truth: an **always-on agent is strictly better UX** (zero wake lag,
+no preemption surprises) and costs ~$270/agent/month on this hardware. The
+whole platform is a bet that the trade below is worth ~1000× cheaper agents.
+For calibration: Hermes itself is not slow — an LLM reply takes ~5–15 s — so
+a sub-second wake is invisible, while a 16–25 s cold resume feels like one
+extra LLM turn of dead air at the start of a session.
+
+| Optimization | Cost effect | UX / other downside | Mitigation in place |
+|---|---|---|---|
+| **Suspend-when-idle** (the architecture) | $270 → <$1/agent — the premise | **Cold wake: 16–25 s of lag** when returning after an absence; nothing else survives criticism without this row being worth it | Adaptive window (below); login sessions + memory survive, so lag is the *only* symptom; wake ≈ one LLM turn |
+| **Warm pool** | Signup ~2 s instead of a cold start (UX win, not a trade) | Spares cost ~$3/mo total | — |
+| **Adaptive suspension** (15 s / 2 m windows) | Conversations pay resume+tail once, not per message | Strictly better than a fixed short window; vs always-on, returns after >2 m still hit the cold wake | `idle.activeTimeout` is a per-tier dial: 10–15 m ≈ +$0.06/agent for most returns landing warm (see `investigations/`) |
+| **Spot sandbox nodes** | ~−70% compute | Rare, *unplanned* 16–25 s stall mid-session on preemption; an in-flight turn can be dropped | Hermes flags sessions `restart_interrupted` and auto-resumes; gateway/controllers stay on-demand |
+| **LSSD swap + measured requests** (100m/256Mi) | 3.9× agents/node; slot $5.57 → $1.50 | Swapped-agent wake +100–400 ms (measured; invisible vs LLM); *theoretical* thrash if far more agents go active than modeled | Mixed-load tested clean at 20% concurrent (4× modeled peak); PSI alerting is the open TODO |
+| **Cron-aware wake** | Scheduled jobs no longer require an always-on pod | Jobs can fire up to ~1 min late; jobs longer than the 2 m grace risk interruption | Hermes boot catch-up fires missed jobs once; `cron.grace` is a knob; Telegram users are exempt entirely |
+| **Machine shape / Terraform / secrets plumbing** | Various savings + reproducibility | None — user-invisible | — |
+
+Bottom line: the user-visible price of ~1000× cheaper agents is **one
+cold-start pause per return-after-absence, and the occasional Spot hiccup**.
+Both shrink with the roadmap (wider active windows now; stage-in/stage-out
+storage later makes even cold wakes ~1–3 s).
+
 ## Design decisions & caveats
 
 Every load-bearing decision lives here. If you change one, update this list.
@@ -475,9 +500,8 @@ Every load-bearing decision lives here. If you change one, update this list.
     pd-balanced user PVCs — that's why n2d.*
 25. **Requests are measured, not guessed**: steady-state Hermes RSS is
     248 MiB → requests 100m/256Mi, limits 2 vCPU/2Gi; swap is the safety
-    net against burst overlap. Cost trajectory: \$12.88 → **~\$0.67/agent**
-    today (single node) → **\$0.14 at-scale floor**, with disk now ~60% of
-    the floor. Full history + next levers: `costcalc/COST-REDUCTION.md`;
+    net against burst overlap. Cost history and the trade-offs table above
+    cover the numbers; full roadmap: `costcalc/COST-REDUCTION.md`,
     interactive model: `costcalc/index.html`.
 
 ## Future work
