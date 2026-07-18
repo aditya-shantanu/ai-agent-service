@@ -352,7 +352,7 @@ extra LLM turn of dead air at the start of a session.
 | **Adaptive suspension** (15 s / 2 m windows) | ≈ neutral | ✅ conversations pay the cold wake once, not per message; returns after the window still hit it | `idle.activeTimeout` is a per-tier dial (see `investigations/`) |
 | **LSSD swap + measured requests** (100m/256Mi) | 🟢 ↓ → **$0.14** at-scale floor (slot $5.57 → $1.50, 3.9× density) | Swapped-agent wake +100–400 ms (measured; invisible vs LLM); *theoretical* thrash if far more agents go active than modeled | Mixed-load tested clean at 20% concurrent; PSI alerting is the open TODO |
 | **Cron-aware wake** | ≈ neutral — *protects* the savings (jobs no longer force always-on pods) | Jobs can fire up to ~1 min late; jobs longer than the 2 m grace risk interruption | Hermes boot catch-up fires missed jobs once; `cron.grace` is a knob; Telegram users are exempt entirely |
-| **Startup tuning** (aggressive readiness probe + GKE image streaming, 2026-07-17) | 🟢 ↓ slightly (shorter resumes = less pod-time) | ✅ cold resume **16–25 s → 15–16 s on GKE** (remaining chunk is PD attach — see `investigations/`) and **12 s → 4 s on kind**; more consistent | — |
+| **Startup tuning** (aggressive readiness probe + GKE image streaming, 2026-07-17) | 🟢 ↓ slightly (shorter resumes = less pod-time) | ✅ cold resume **16–25 s → ~11–14 s on GKE** (remaining chunk is PD attach — see `investigations/`) and **12 s → 4 s on kind**; more consistent | — |
 | **Production active window 10 m** (GKE) | 🔴 ↑ ≈ **+$0.06** — accepted | ✅ most same-day returns land on a swapped-resident agent: **sub-second wake instead of cold resume** | Window is a per-tier values knob; swap pool makes residents cheap |
 
 No single row gets to <$1: the journey is a waterfall —

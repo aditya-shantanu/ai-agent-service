@@ -9,57 +9,59 @@ open costcalc/index.html
 ## What it answers
 
 Given fixed hardware and the platform's suspend/resume behavior, how many
-agents fit, and what does one agent cost per month? The headline tile is
-**$/agent/month**, shown against the "always-on" baseline (what an agent
-would cost if we never suspended) so the value of the suspend architecture
-is visible. Two sweep charts show how **faster resume times** raise agent
-capacity and cut $/agent on the same hardware — the question we'll re-ask
-after each performance improvement (e.g. the Envoy data plane, image
-pre-pull, smaller boot).
+agents fit, and what does one agent cost per month? Defaults are the
+**golden scenario** — the currently deployed GKE posture — so what you see
+on open is what production runs. Tiles:
 
-## The model
+- **$/agent/month** (hero) vs the always-on baseline,
+- **$/agent at scale** — the marginal floor once fixed costs amortize
+  (~10k+ agents),
+- capacity, duty cycle, and cluster cost breakdown.
 
-Per interaction, a pod is alive for:
+Charts: resume-time sensitivity sweeps (x-axis in **ms**) and the scale
+curve (why $/agent falls with fleet size, then plateaus at the floor).
+
+## The model (conversation-aware — matches the deployed adaptive policy)
+
+Messages group into conversations; the pod stays up through
+intra-conversation gaps, so **resume, idle tail and suspend are paid per
+conversation, not per message**:
 
 ```
-resume + work + idle-timeout + suspend      (default: 10 + 60 + 60 + 2 = 132s)
+pod-time/conversation = resume + msgs*work + (msgs-1)*gap + active-tail + suspend
+pod-time/day          = conversations * that (+ cron wakes)
+duty cycle            = pod-time/day / active window
+max agents            = (slots - spares) / (duty * peak factor)
+$/agent/month         = (nodes + fixed + PVC disk) / max agents
+floor $/agent         = slot-cost * duty * peak + disk     (fixed costs amortized)
 ```
 
-- **pod-seconds/day/agent** = interactions/day × the above, plus optional
-  cron wakes × (resume + cron-grace + suspend).
-- **duty cycle** = pod-seconds/day ÷ active window (default 16 h — traffic
-  isn't uniform over 24 h).
-- **capacity** (concurrent pod slots) = usable vCPU or RAM (after system
-  reserve) ÷ per-agent request, minus always-on warm-pool spares.
-- **max agents** = capacity ÷ (duty × peak factor). Peak factor covers
-  the reality that concurrency spikes above the mean.
-- **cost/month** = node vCPU+RAM hourly × 730 + GKE cluster fee +
-  per-agent PVC disk (PVCs bill even while suspended — every agent pays
-  disk 24/7, which is exactly the architecture's bet: disk is ~100× cheaper
-  than compute).
-- **$/agent/month** = cost ÷ max agents.
-
-Assumptions to know about: interactions are far enough apart that each pays
-the full idle-timeout tail (bursty users would be cheaper); capacity is a
-hard bin-pack on requests (no overcommit); node count is implied by the
-vCPU/RAM totals you enter.
-
-## Defaults (edit any field in the UI)
+## Defaults = deployed posture (all editable in the UI)
 
 | Assumption | Default | Source |
 |---|---|---|
-| Per-agent | 2 vCPU / 2 GB RAM / 2 GB disk | stated requirement |
-| Hardware | 8 vCPU / 32 GB (2× e2-standard-4) | current GKE cluster |
-| Suspend / resume | 2 s / 10 s | to be measured (README validations: ~11–20 s observed resume) |
-| Idle timeout | 60 s | platform default (`idle.timeout: 1m`) |
-| Usage | 10 interactions/day × 1 min | stated assumption |
-| Prices | e2 on-demand us-central1, $0.10/h cluster fee, $0.04/GB-mo PD | GCP list prices — edit for CUDs/spot |
+| Per-agent requests | 100m vCPU / 256 MiB (limits 2 / 2 GiB) | measured: steady-state RSS ~248 MiB |
+| Node | Spot `n2d-standard-8` + $36/mo LSSD (swap) | deployed swap pool |
+| Resume / suspend | **12,000 ms / 2,000 ms** | measured 2026-07-17 post probe-tuning: GKE 10.7–13.6 s (kind: 4.0 s — the GKE delta is PD attach) |
+| Idle tails | 15 s isolated / **600 s** conversation | deployed adaptive policy (10 m GKE window) |
+| Usage | 10 msgs/day in 3 conversations, 1 min work, 30 s gaps | stated assumptions |
+| Traffic | 16 h window, 2× peak factor | assumption |
+| Prices | GCP us-central1 Spot list (2026-07) | edit for CUDs/negotiated |
 
-## The insight the sweep makes visible
+## How to read it
 
-With defaults, per-interaction pod-time is 132 s, of which the **idle
-timeout (60 s) is the largest platform-controlled share** — cutting resume
-from 10 s to 0 s only shrinks pod-time by ~8%. Resume speed becomes a
-first-order lever only after the idle timeout is tightened (or made
-adaptive). The footer line under the charts recomputes this trade-off from
-whatever values you've entered.
+- The **at-scale floor tile** is the number scale buys you; the hero tile
+  includes fixed costs at your entered hardware size.
+- The floor currently reads **~$0.21**: that is the $0.14 swap-posture
+  floor plus ~$0.06 deliberately spent on the 10-minute active window
+  (sub-second wakes for same-day returns). Set the conversation tail back
+  to 120 s to see the $0.14 economics.
+- **Resume-time sensitivity is modest by design**: with adaptive
+  suspension, resume is paid once per conversation (3×/day), so even
+  halving it moves the floor by cents. The disk line ($0.08/agent) is now
+  the biggest single component — see `COST-REDUCTION.md` for the lever
+  ranking and `../investigations/resume-latency-and-storage.md` for the
+  storage endgame that attacks both.
+
+Full optimization history, assumptions and next levers:
+[`COST-REDUCTION.md`](COST-REDUCTION.md).

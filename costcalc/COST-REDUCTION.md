@@ -13,7 +13,7 @@ in `index.html` — change one and the whole model recomputes.
 | | Traffic window | 16 h / day |
 | | Peak-over-mean concurrency | 2× |
 | **Suspend / resume** | Suspend | 2,000 ms |
-| | Resume | 15,500–16,300 ms measured on GKE (4,000 ms kind — GKE delta is PD attach) |
+| | Resume | 10,700–13,600 ms measured on GKE (4,000 ms kind — GKE delta is PD attach) |
 | | Idle tail — isolated message | 15 s |
 | | Idle tail — active conversation | 10 m on GKE (2 m kind) — deployed adaptive policy |
 | **Per agent** | Requests / limits | 100m, 256 MiB / 2 vCPU, 2 GiB (measured; Burstable for swap) |
@@ -22,7 +22,7 @@ in `index.html` — change one and the whole model recomputes.
 | | Fixed overhead | 2 warm spares + on-demand system node + cluster fee |
 | | Prices | GCP us-central1 list, Spot (as of 2026-07) |
 | **Measured** | Warm adoption | ≤ 2 s |
-| | Resume (observed) | 15–16 s GKE / 4 s kind (post probe-tuning) |
+| | Resume (observed) | ~11–14 s GKE / 4 s kind (post probe-tuning + image streaming) |
 | | Idle Hermes RSS | ~248 MiB |
 | | Density (PVC-backed, per node) | 62 agents, mixed-load clean (28 ms idle-cohort, PSI 0) |
 
@@ -85,7 +85,7 @@ cost: $5.57 → $1.50.
    fraction of the sandbox pool; Spot continues to cover burst.
 8. **Faster resume — PARTIAL (2026-07-17).** Done: aggressive readiness
    probe (was adding 10–15 s of pure wait: kind resume 12 s → **4 s**; GKE
-   16–25 s → **15–16 s** and consistent) and GKE image streaming on the
+   16–25 s → **~11–14 s**) and GKE image streaming on the
    swap pool (fast cold nodes). Remaining GKE chunk is **PD attach
    (~10 s)** — owned by the stage-in/stage-out storage design
    (`investigations/resume-latency-and-storage.md`), not by boot tuning.
