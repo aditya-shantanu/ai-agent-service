@@ -76,7 +76,7 @@ sequenceDiagram
     K8s->>Pod: recreate pod, reattach PVC
     Waker->>K8s: annotate cron-grace-until=09:05, clear next-cron-wake
     Note over Pod: gateway boots, scheduler ticks (≤60s),<br/>job due (or stale) → fires ONCE (built-in catch-up)
-    Note over Sweep: skips user until 09:05,<br/>then normal idling; next suspend re-captures next_run_at
+    Note over Sweep: skips user until 09:05,<br/>then normal idling — next suspend re-captures next_run_at
 ```
 
 ## Edge cases and answers

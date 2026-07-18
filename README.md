@@ -151,7 +151,7 @@ sequenceDiagram
     GW->>GW: verify token vs claim annotation (constant-time)
     GW->>K8s: patch operatingMode=Running (per-user mutex)
     K8s->>Pod: recreate pod, reattach same PVC
-    GW->>GW: hold request until Ready (≤ wakeTimeout; 11–20s observed)
+    GW->>GW: hold request until Ready (≤ wakeTimeout — 11–20s observed)
     GW->>Pod: proxy request (platform API key injected)
     Pod-->>User: response — history & login session intact
 ```
