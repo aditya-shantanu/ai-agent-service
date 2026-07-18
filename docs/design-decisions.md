@@ -45,7 +45,9 @@ Every load-bearing decision lives here. If you change one, update this list.
    (`EnvVarsInjectionRejected`) instead of silently cold-starting. The only
    warm-compatible per-claim customization is `additionalPodMetadata`
    (pod labels must use the `sandbox.users.io` domain under default
-   controller flags). Measured: warm adoption ≤2s; resume 11–20s.
+   controller flags). Measured: warm adoption ≤2s; resume 4s on kind /
+   ~11–14s on GKE (post probe-tuning + image streaming; GKE delta is PD
+   attach — see `investigations/resume-latency-and-storage.md`).
 7. **Never set claim `lifecycle`.** Every claim-expiry path deletes the
    Sandbox, which garbage-collects the user's PVC (their entire memory).
    User deletion = delete the claim (deliberate cascade: sandbox + PVC +
@@ -77,7 +79,8 @@ Every load-bearing decision lives here. If you change one, update this list.
     `FlushInterval: -1`, Origin-strip on WebSocket upgrade) are borrowed from
     sandbox-router.
 13. **Wake-on-connect holds the request** (up to `gateway.wakeTimeout`, 60s)
-    rather than failing fast; observed resume is ~11s. Timeout → 503 +
+    rather than failing fast; observed resume is 4s (kind) to ~12s (GKE).
+    Timeout → 503 +
     `Retry-After`. It is safe to flip `operatingMode` back to Running
     mid-suspension — never wait for `Suspended=True` first.
 14. **Users with a Telegram token are exempt from idle suspend** by default

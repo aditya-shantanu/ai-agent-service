@@ -35,7 +35,9 @@ Behavior:
   while it resumes; timeout → `503` + `Retry-After: 10`.
 - WebSockets and SSE stream through; open sockets count as activity and
   block idle suspension.
-- Any proxied request resets the user's idle clock.
+- Any proxied request resets the user's idle clock. Suspension is
+  adaptive: 15s tail after an isolated request, the configured active
+  window (2m kind / 10m GKE) while a conversation is in progress.
 
 ### Examples
 

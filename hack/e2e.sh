@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Full-loop e2e against a helm-deployed hermes-service (idle.timeout=1m default).
+# Full-loop e2e against a helm-deployed hermes-service (adaptive idle windows;
+# waits are sized from the deployed IDLE_ACTIVE_TIMEOUT).
 # Exercises: provision (warm), proxy auth, both surfaces, idle suspend,
 # wake-on-connect with state persistence, telegram inject/remove, idempotent
 # replay, cascade delete, negative auth.

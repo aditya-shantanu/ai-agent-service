@@ -1,6 +1,10 @@
 # Investigation: resume latency (PD attach) and the Filestore question
 
-**Date:** 2026-07-17 · **Status:** analysis only — no changes made.
+**Date:** 2026-07-17 · **Status:** analysis; Option B since implemented.
+**Update (same day):** probe tuning + image streaming landed — resume is
+now **4 s on kind / ~11–14 s on GKE** (numbers below are the pre-fix
+measurements this analysis was based on); the 10 m active window (Option B)
+is deployed on GKE. The PD-attach chunk and Option C remain open.
 **Question asked:** resume takes 10s+, mostly PD attach. Can we use
 [Filestore zonal](https://docs.cloud.google.com/filestore/docs/service-tiers-zonal)
 instead? Why or why not, and what does it do to $/agent at scale?

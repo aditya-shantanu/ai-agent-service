@@ -154,7 +154,7 @@ sequenceDiagram
     GW->>GW: verify token vs claim annotation (constant-time)
     GW->>K8s: patch operatingMode=Running (per-user mutex)
     K8s->>Pod: recreate pod, reattach same PVC
-    GW->>GW: hold request until Ready (≤ wakeTimeout — 11–20s observed)
+    GW->>GW: hold request until Ready (≤ wakeTimeout — 4s kind / ~12s GKE measured)
     GW->>Pod: proxy request (platform API key injected)
     Pod-->>User: response — history & login session intact
 ```
@@ -254,7 +254,7 @@ the multi-tenancy demo. It emulates n independent users from your terminal:
    go quiet; after the idle window only user 1 is still `Ready`, the rest are
    `Suspended` (pods gone, PVCs kept).
 5. **Wake-on-connect** — user 2 sends one request and gets an answer after a
-   ~11–20s hold, state back to `Ready`.
+   ~4s (kind) / ~12s (GKE) hold, state back to `Ready`.
 
 `KEEP=1` leaves the simulated users running so you can poke at them (e.g.
 open two browser tabs on `/u/sim1/?token=…` and `/u/sim2/?token=…` — two
@@ -273,7 +273,7 @@ tab closes.
 | M1 Hermes image contract validated | ✅ `docs/hermes-image.md`, `make validate-hermes-image` |
 | M2 K8s dress rehearsal (kind) | ✅ `hack/m2-dress-rehearsal.sh` (7 checks) |
 | M3 Control plane REST API | ✅ unit tests + live kind validation |
-| M4 Proxy + wake + idle suspend | ✅ wake hold ~11s observed on kind |
+| M4 Proxy + wake + idle suspend | ✅ wake hold 4s on kind / ~12s on GKE (post probe-tuning) |
 | M5 Telegram token injection | ✅ inject/remove + suspend exemption |
 | M6 Helm chart + e2e | ✅ `make e2e` — 11 checks |
 | M7 GKE (`gke-ai-eco-dev`) | ✅ cluster `hermes-svc` (us-central1-a, DPv2) — e2e green, NetworkPolicy enforced |
@@ -289,7 +289,7 @@ inferred. Automated suites are re-runnable via the listed entry points.
 | Validation | Where | Evidence / entry point |
 |---|---|---|
 | Hermes image env contract (auth gates, session-secret survival, telegram `.env` injection, non-root, restart persistence) | Docker | `make validate-hermes-image` — 5 checks |
-| agent-sandbox layer (warm adoption ≤2s, env-claims rejected, NetworkPolicy enforced, suspend retains PVC+Service, resume ~11s, exec injection) | kind | `hack/m2-dress-rehearsal.sh` — 7 checks |
+| agent-sandbox layer (warm adoption ≤2s, env-claims rejected, NetworkPolicy enforced, suspend retains PVC+Service, resume (now 4s post probe-tuning), exec injection) | kind | `hack/m2-dress-rehearsal.sh` — 7 checks |
 | Full platform loop (provision → proxy auth + both surfaces → idle suspend → wake-on-connect → session survival → telegram → **cron wake with zero traffic** → idempotent replay → cascade delete) | kind + GKE | `make e2e` — 11 checks, green on both |
 | Multi-user concurrency (parallel warm/cold signups, concurrent traffic, cross-user 401 isolation, differential idle-suspend, transparent wake) | kind | `make simulate-users` |
 | NetworkPolicy is the isolation boundary (unlabeled pods blocked, gateway label admitted) | kind (kube-network-policies) + GKE (Dataplane V2) | in m2 script + manual GKE check |

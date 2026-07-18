@@ -14,7 +14,7 @@
 #
 # Works against any deployment (kind or GKE) reachable via kubectl.
 # NOTE: the idle-suspension phase is only fast enough to watch when the
-# deployment uses a short idle timeout (default: 1m).
+# deployment uses a short active window (kind default: 2m; skipped >2m).
 set -euo pipefail
 
 NS="${NS:-hermes-users}"
@@ -123,7 +123,7 @@ PYEOF
 say "Idle phase: ${PREFIX}1 stays active (heartbeat); the rest go idle (base $IDLE_TIMEOUT / active $IDLE_ACTIVE)"
 if [ "$IDLE_SECS" -gt 120 ]; then
   echo "  Idle timeout is $IDLE_TIMEOUT — too long to demo interactively; skipping the suspend/wake phase."
-  echo "  (Deploy with the default idle.timeout=1m to watch it.)"
+  echo "  (Deploy with a short idle.activeTimeout — e.g. kind default 2m — to watch it.)"
 else
   WINDOW=$(( IDLE_SECS + 90 ))
   END=$(( $(date +%s) + WINDOW ))

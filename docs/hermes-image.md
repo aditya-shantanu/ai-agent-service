@@ -93,6 +93,15 @@ The root-only bootstrap (UID remap, chown) is skipped safely; seeding and all
 services work. Do NOT use arbitrary other UIDs — the image explicitly rejects
 them.
 
+## Platform overrides on top of this contract
+
+- The chart pre-seeds `/opt/data/config.yaml` with `model.default`
+  (`hermes.defaultModel`, default `google/gemini-flash-latest`) via an init
+  container BEFORE Hermes’ own first-boot seed — without it, Gemini-only
+  deployments 404 on Hermes’ Anthropic default model.
+- The chart’s readiness probe is aggressive (2s/2s): Hermes binds :9119
+  within ~2–4s and a lazy probe was inflating every resume.
+
 ## Caveats
 
 - **amd64-only image.** On Apple Silicon (kind/colima) it runs under

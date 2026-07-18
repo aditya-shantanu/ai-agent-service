@@ -45,7 +45,10 @@ resource "google_container_node_pool" "system" {
   }
 }
 
-# Sandbox pool: Spot VMs — the platform is restart-tolerant by design
+# Rollback sandbox pool (idle): sandboxes now run on the gcloud-managed
+# LSSD-swap pool (hack/gke-swap-pool.sh) — this pool is kept as instant
+# rollback (flip values-gke selectors back). Delete once swap has a quiet
+# week. Spot VMs — the platform is restart-tolerant by design
 # (suspend/resume IS a kill; PVCs survive; Hermes resumes sessions), so a
 # Spot preemption is just an unscheduled suspend. Tainted so only sandbox
 # pods (which carry the toleration via the SandboxTemplate) land here.

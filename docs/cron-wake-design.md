@@ -53,7 +53,7 @@ v2 architecture — nothing here touches the data path):
    ticker + boot catch-up remain the safety net if the exec fails).
 
 3. **Sweeper protection.** The idle sweeper skips any user whose
-   `cron-grace-until` is in the future — otherwise the 1m idle timeout would
+   `cron-grace-until` is in the future — otherwise the short base idle window would
    kill the pod before the 60s scheduler tick even runs the job. After the
    grace window, normal idling applies; the next suspend re-captures the new
    `next_run_at`.
@@ -89,7 +89,7 @@ sequenceDiagram
 | Waker misses the time (gateway restart/downtime) | Harmless — on the next wake from ANY cause, Hermes catch-up fires the job once. The annotation persists, so the waker fires late rather than never. |
 | Telegram users | Already suspend-exempt; their in-pod cron just runs. This design only matters for suspendable users. |
 | One-shot jobs (`run_at`) | Same jobs.json shape; earliest-time logic covers them (ONESHOT_GRACE in Hermes tolerates modest lateness). |
-| Many users, same cron time (herd) | Waker resumes are staggered by the 30s tick granularity and warm resume is ~11–20s; acceptable at current scale. At 10k users, batch/stagger the waker (v2, and see the Envoy plan's mass-wake spike S4). |
+| Many users, same cron time (herd) | Waker resumes are staggered by the 30s tick granularity and warm resume is ~4–14s; acceptable at current scale. At 10k users, batch/stagger the waker (v2, and see the Envoy plan's mass-wake spike S4). |
 
 ## Phase 2 (when upstream stabilizes `CronScheduler`)
 
