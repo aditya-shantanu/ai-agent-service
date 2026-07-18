@@ -13,16 +13,16 @@ in `index.html` — change one and the whole model recomputes.
 | | Traffic window | 16 h / day |
 | | Peak-over-mean concurrency | 2× |
 | **Suspend / resume** | Suspend | 2,000 ms |
-| | Resume | 10,000 ms |
+| | Resume | 15,500–16,300 ms measured on GKE (4,000 ms kind — GKE delta is PD attach) |
 | | Idle tail — isolated message | 15 s |
-| | Idle tail — active conversation | 2 m (deployed adaptive policy) |
+| | Idle tail — active conversation | 10 m on GKE (2 m kind) — deployed adaptive policy |
 | **Per agent** | Requests / limits | 100m, 256 MiB / 2 vCPU, 2 GiB (measured; Burstable for swap) |
 | | Persistent disk (PVC) | 2 GB — bills 24/7, even suspended |
 | **Hardware** | Sandbox nodes | Spot `n2d-standard-8` + dedicated-LSSD swap (~62 agent slots) |
 | | Fixed overhead | 2 warm spares + on-demand system node + cluster fee |
 | | Prices | GCP us-central1 list, Spot (as of 2026-07) |
 | **Measured** | Warm adoption | ≤ 2 s |
-| | Resume (observed) | 11–20 s |
+| | Resume (observed) | 15–16 s GKE / 4 s kind (post probe-tuning) |
 | | Idle Hermes RSS | ~248 MiB |
 | | Density (PVC-backed, per node) | 62 agents, mixed-load clean (28 ms idle-cohort, PSI 0) |
 
@@ -83,12 +83,12 @@ cost: $5.57 → $1.50.
 7. **Committed-use discounts.** Once baseline usage is predictable: 1-yr
    (~37%) or 3-yr (~55%) CUD covering the system pool + the always-on
    fraction of the sandbox pool; Spot continues to cover burst.
-8. **Faster resume (engineering, parked behind the Envoy plan).** Only ~8%
-   of pod-time at a 60 s idle timeout — becomes first-order *after* #5.
-   Levers: GKE image streaming, slimmer boot (skip services users don't
-   use), and eventually pod checkpoint/restore. Re-run the calculator
-   sweep after each improvement; the "resume time" charts exist precisely
-   to track this.
+8. **Faster resume — PARTIAL (2026-07-17).** Done: aggressive readiness
+   probe (was adding 10–15 s of pure wait: kind resume 12 s → **4 s**; GKE
+   16–25 s → **15–16 s** and consistent) and GKE image streaming on the
+   swap pool (fast cold nodes). Remaining GKE chunk is **PD attach
+   (~10 s)** — owned by the stage-in/stage-out storage design
+   (`investigations/resume-latency-and-storage.md`), not by boot tuning.
 9. **Cluster autoscaler on the sandbox pool.** Fixed node counts pay for
    the peak all day. Autoscaling the Spot pool (min 1) trims the off-peak
    tail; pairs naturally with #7's CUD floor.

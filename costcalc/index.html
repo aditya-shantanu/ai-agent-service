@@ -70,7 +70,7 @@
 <body>
 <div class="wrap">
   <h1>Hermes-as-a-Service — GKE cost calculator</h1>
-  <p class="sub">$/agent/month from hardware, usage and suspend/resume assumptions. Defaults show the <strong>golden scenario</strong>: the currently deployed posture (Spot n2d-standard-8 + local-SSD swap, measured 100m/256Mi requests, adaptive suspension 15s/2m). Every field is editable — results update live.</p>
+  <p class="sub">$/agent/month from hardware, usage and suspend/resume assumptions. Defaults show the <strong>golden scenario</strong>: the currently deployed posture (Spot n2d-standard-8 + local-SSD swap, measured 100m/256Mi requests, adaptive suspension 15s base / 10m active window, measured 16s resume). Every field is editable — results update live.</p>
 
   <div class="tiles" id="tiles"></div>
 
@@ -142,10 +142,10 @@ const FIELDS = [
     ["diskGb",       "Disk (GB) / agent (PVC)",     2],
   ]],
   ["Suspend / resume", [
-    ["resumeMs",     "Resume time (ms)",            10000],
+    ["resumeMs",     "Resume time (ms)",            16000],
     ["suspendMs",    "Suspend time (ms)",           2000],
     ["baseTailS",    "Idle tail, isolated (s)",     15],
-    ["activeTailS",  "Idle tail, conversation (s)", 120],
+    ["activeTailS",  "Idle tail, conversation (s)", 600],
   ]],
   ["Usage per agent", [
     ["perDay",       "Interactions / day",          10],

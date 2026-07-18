@@ -63,10 +63,16 @@ echo "$MODELS" | jq -e '.object == "list"' >/dev/null || fail "v1/models failed:
 pass "OpenAI-compatible API through proxy (key injection)"
 
 # 5. Idle suspend. The preceding request burst counts as a conversation, so
-# the ACTIVE window (2m) applies + 30s sweep granularity.
-echo "  waiting up to 240s for idle suspension (active window)..."
+# the deployment's ACTIVE window applies + 30s sweep granularity. Read the
+# window from the deployment so this works at any configured timeout.
+ACTIVE=$(kubectl -n "$NS" get deploy hermes-gateway -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="IDLE_ACTIVE_TIMEOUT")].value}')
+ACTIVE_SECS=$(python3 -c "
+import re,sys
+print(sum(int(n)*{'h':3600,'m':60,'s':1}[u] for n,u in re.findall(r'(\d+)([hms])','${ACTIVE:-2m}')) or 120)")
+TRIES=$(( (ACTIVE_SECS + 120) / 5 ))
+echo "  waiting up to $((TRIES*5))s for idle suspension (active window $ACTIVE)..."
 SUSPENDED=""
-for _ in $(seq 1 48); do
+for _ in $(seq 1 $TRIES); do
   STATE=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .state)
   [ "$STATE" = "Suspended" ] && SUSPENDED=1 && break
   sleep 5
@@ -110,7 +116,7 @@ kubectl -n "$NS" exec "$POD" -- sh -c \
   'mkdir -p /opt/data/scripts && printf "#!/bin/bash\ndate -u >> /opt/data/cron-marker\necho ran\n" > /opt/data/scripts/marker.sh'
 kubectl -n "$NS" exec "$POD" -- hermes cron create 'every 2m' --name e2e-marker --script marker.sh --no-agent >/dev/null
 SUSPENDED=""
-for _ in $(seq 1 48); do
+for _ in $(seq 1 $TRIES); do
   STATE=$(curl -s -H "$A" "http://$GW/api/v1/users/$USER_ID" | jq -r .state)
   [ "$STATE" = "Suspended" ] && SUSPENDED=1 && break
   sleep 5

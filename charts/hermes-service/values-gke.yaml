@@ -11,6 +11,12 @@ hermes:
   # Mirrored upstream image (Docker Hub rate limits + supply-chain pinning).
   image: us-central1-docker.pkg.dev/gke-ai-eco-dev/hermes-service/hermes-agent:v2026.7.7.2
 
+idle:
+  # Production UX posture (investigations/resume-latency-and-storage.md):
+  # most returns land on a swapped-resident agent (sub-second page-in)
+  # instead of paying a cold resume. ~+$0.06/agent on the swap pool.
+  activeTimeout: 10m
+
 sandbox:
   storage:
     storageClassName: ""   # GKE default (standard-rwo)

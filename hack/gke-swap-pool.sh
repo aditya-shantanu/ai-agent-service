@@ -11,4 +11,5 @@ gcloud container node-pools create hermes-swap-pool \
   --num-nodes 1 --max-pods-per-node 256 \
   --node-labels hermes-swap=true \
   --node-taints hermes-swap=true:NoSchedule \
+  --enable-image-streaming \
   --system-config-from-file "$DIR/kubelet-swap.yaml"

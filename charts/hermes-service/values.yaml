@@ -54,10 +54,12 @@ sandbox:
     size: 2Gi
     # Empty string uses the cluster default StorageClass (works on kind & GKE).
     storageClassName: ""
+  # Aggressive probe: Hermes binds :9119 within a few seconds; a lazy probe
+  # was adding 10-15s of pure wait to every resume (measured).
   readiness:
-    initialDelaySeconds: 10
-    periodSeconds: 5
-    failureThreshold: 24
+    initialDelaySeconds: 2
+    periodSeconds: 2
+    failureThreshold: 60
 
 # Shared platform secrets. Leave *.existingSecret empty to have the chart
 # GENERATE random values on first install (preserved across upgrades via
