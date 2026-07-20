@@ -230,6 +230,7 @@ Three layers, fastest to slowest:
 make test              # unit tests (fake clientsets, httptest) — seconds
 make e2e               # full-loop platform test — ~10 min on kind
 make simulate-users    # multi-user emulation — ~5 min on kind
+make bench             # UX latency benchmark vs always-alive baseline — ~10 min
 ```
 
 **`make e2e`** (`hack/e2e.sh`) drives one user through the entire lifecycle
@@ -269,6 +270,23 @@ open each dashboard URL in separate browser profiles, log in with the
 platform dashboard credentials, and chat — each tab holds a WebSocket to its
 own sandbox, which counts as activity and blocks idle suspension until the
 tab closes.
+
+### Benchmarking UX (the cost/experience trade)
+
+**`make bench`** (`cmd/hermes-bench` via `hack/bench.sh`) turns the
+scattered latency claims above into a repeatable measurement with a
+contract. It times the two user-facing moments — signup (`POST
+/api/v1/users`, warm and drained-pool cold) and coming back (wake-on-connect
+against an explicitly suspended agent) — and compares them against an
+**always-alive baseline** agent (suspend-exempt, the pre-cost-optimization
+experience). The headline output is the **suspension UX tax** (resume p50 −
+baseline p50): the seconds of user experience each dollar of cost
+optimization spends. `make bench-check` additionally gates against the
+per-environment budgets in `bench/budgets-{kind,gke}.yaml` (exit 1 on
+regression); `make bench-gke` runs the same suite against the GKE
+LoadBalancer, where gVisor + PD attach dominate. `TTFT=1` adds streamed
+chat time-to-first-token scenarios (spends LLM credits). Details, scenario
+matrix and budget semantics: `bench/README.md`.
 
 ## Status
 

@@ -1,0 +1,24 @@
+# UX latency budgets — kind (runc, local Docker). All values in ms.
+#
+# PROVISIONAL: seeded from the measured numbers in README "Validations"
+# (warm adoption ≤2s, resume ~4s kind, m2 rehearsal's ≤15s provision bound)
+# with ~2x headroom for laptop noise. Tighten after three green `make bench`
+# snapshots — the numbers in bench/results/ are the evidence.
+env: kind
+allowedWakeErrors: 0
+required:
+  - baseline-always-alive
+  - resume-suspended
+  - new-agent-warm
+scenarios:
+  baseline-always-alive: { p50: 250, p95: 1000, max: 2000 }
+  resume-suspended: { p50: 8000, max: 20000 }
+  new-agent-warm: { p50: 5000, max: 15000 }
+  new-agent-cold: { p50: 30000, max: 60000 }
+  # TTFT scenarios are only gated when --ttft ran (skipped = warning).
+  baseline-ttft: { p50: 6000, max: 15000 }
+  resume-suspended-ttft: { p50: 15000, max: 30000 }
+comparisons:
+  # The headline number: what suspension costs a returning user vs an
+  # always-alive agent. Cost work regresses THIS before anything else.
+  suspendUXTaxP50Max: 10000

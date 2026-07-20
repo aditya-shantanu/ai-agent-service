@@ -10,7 +10,7 @@ GCP_PROJECT ?= gke-ai-eco-dev
 AR_REGION   ?= us-central1
 AR_REPO     ?= $(AR_REGION)-docker.pkg.dev/$(GCP_PROJECT)/hermes-service
 
-.PHONY: build test lint validate-hermes-image image kind-up kind-load deploy-kind dev e2e simulate-users set-provider-key undeploy sandbox-install images-push deploy-gke gke-credentials infra-apply infra-destroy eso-install gsm-push-key gke-swap-pool gke-gvisor-pool help
+.PHONY: build test lint validate-hermes-image image kind-up kind-load deploy-kind dev e2e simulate-users bench-build bench bench-check bench-gke set-provider-key undeploy sandbox-install images-push deploy-gke gke-credentials infra-apply infra-destroy eso-install gsm-push-key gke-swap-pool gke-gvisor-pool help
 
 build: ## Build the gateway binary
 	go build -o bin/gateway ./cmd/gateway
@@ -49,6 +49,18 @@ e2e: ## Run the full-loop e2e test (expects deploy-kind done)
 
 simulate-users: ## Emulate N concurrent users (USERS=3): provision, traffic, idle, wake
 	NS=$(NAMESPACE) USERS=$(or $(USERS),3) hack/simulate-users.sh
+
+bench-build: ## Build the UX benchmark CLI (cmd/hermes-bench)
+	go build -o bin/hermes-bench ./cmd/hermes-bench
+
+bench: bench-build ## UX benchmark vs kind: new+resume vs always-alive baseline (report + snapshot)
+	ENV=kind NS=$(NAMESPACE) hack/bench.sh
+
+bench-check: bench-build ## Benchmark kind and FAIL if bench/budgets-kind.yaml is exceeded
+	ENV=kind NS=$(NAMESPACE) CHECK=1 hack/bench.sh
+
+bench-gke: bench-build ## UX benchmark vs GKE (CHECK=1 to gate, TTFT=1 for chat TTFT, DRAIN=1 for cold)
+	ENV=gke NS=$(NAMESPACE) hack/bench.sh
 
 set-provider-key: ## Load LLM provider keys from .env into the cluster (kind or GKE)
 	@test -f .env || (echo "No .env file — copy .env.example to .env and fill in your key" && exit 1)

@@ -23,6 +23,7 @@ func New(cfg *config.Config, h *api.Handlers, proxy http.Handler) http.Handler {
 	mux.HandleFunc("POST /api/v1/users/{id}/suspend", admin(h.Suspend))
 	mux.HandleFunc("POST /api/v1/users/{id}/resume", admin(h.Resume))
 	mux.HandleFunc("POST /api/v1/users/{id}/token", admin(h.RotateToken))
+	mux.HandleFunc("PUT /api/v1/users/{id}/suspend-exempt", admin(h.SetSuspendExempt))
 	mux.HandleFunc("PUT /api/v1/users/{id}/telegram-token", admin(h.SetTelegramToken))
 	mux.HandleFunc("DELETE /api/v1/users/{id}/telegram-token", admin(h.DeleteTelegramToken))
 	mux.HandleFunc("DELETE /api/v1/users/{id}", admin(h.DeleteUser))

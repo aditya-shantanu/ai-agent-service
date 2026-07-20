@@ -192,6 +192,35 @@ func (h *Handlers) Resume(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toResponse(ua))
 }
 
+// SetSuspendExempt handles PUT /api/v1/users/{id}/suspend-exempt.
+// Toggles the idle-suspension exemption directly (until now only the
+// telegram-token flow set it). Note DELETE .../telegram-token force-clears
+// the exemption regardless of how it was set.
+func (h *Handlers) SetSuspendExempt(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Exempt *bool `json:"exempt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Exempt == nil {
+		writeErr(w, http.StatusBadRequest, "body must be {\"exempt\": true|false}")
+		return
+	}
+	userID := r.PathValue("id")
+	if _, err := h.Resolver.Resolve(r.Context(), userID); err != nil {
+		h.errStatus(w, err)
+		return
+	}
+	if err := h.Lifecycle.SetSuspendExempt(r.Context(), userID, *body.Exempt); err != nil {
+		h.errStatus(w, err)
+		return
+	}
+	ua, err := h.Resolver.Resolve(r.Context(), userID)
+	if err != nil {
+		h.errStatus(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toResponse(ua))
+}
+
 // RotateToken handles POST /api/v1/users/{id}/token.
 func (h *Handlers) RotateToken(w http.ResponseWriter, r *http.Request) {
 	userID := r.PathValue("id")

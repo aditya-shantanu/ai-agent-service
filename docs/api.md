@@ -21,6 +21,7 @@ Two surfaces on one port (default `:8080`):
 | `POST /api/v1/users/{id}/suspend` | Explicit suspend (works even for exempt users). |
 | `POST /api/v1/users/{id}/resume` | Resume; holds until Ready (`200`) or returns `202` if not Ready within `wakeTimeout`. |
 | `POST /api/v1/users/{id}/token` | Rotate the user token (returned once). |
+| `PUT /api/v1/users/{id}/suspend-exempt` `{"exempt":true}` | Toggle idle-suspension exemption ("always alive"). Explicit suspend still works on exempt users; `DELETE …/telegram-token` force-clears the exemption. |
 | `PUT /api/v1/users/{id}/telegram-token` `{"token":"...","allowedUsers":"id1,id2"}` | Install bot token (runtime injection; marks user suspend-exempt). |
 | `DELETE /api/v1/users/{id}/telegram-token` | Remove bot token; re-enables idle suspension. |
 | `DELETE /api/v1/users/{id}` | Delete user. Cascades: claim → sandbox → PVC → owned Secrets. Irreversible. |

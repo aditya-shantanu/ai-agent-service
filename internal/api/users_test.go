@@ -192,6 +192,44 @@ func TestSuspendResumeAndDelete(t *testing.T) {
 	}
 }
 
+func TestSetSuspendExempt(t *testing.T) {
+	h, clients := newServer(t, "seeduser")
+
+	w := doReq(t, h, "PUT", "/api/v1/users/seeduser/suspend-exempt", `{"exempt":true}`, true)
+	if w.Code != http.StatusOK {
+		t.Fatalf("set exempt: %d %s", w.Code, w.Body)
+	}
+	var resp map[string]any
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["suspendExempt"] != true {
+		t.Errorf("response suspendExempt = %v", resp["suspendExempt"])
+	}
+	claim, _ := clients.Ext.ExtensionsV1beta1().SandboxClaims(ns).Get(t.Context(), sandbox.ClaimName("seeduser"), metav1.GetOptions{})
+	if claim.Annotations[sandbox.AnnotationSuspendExempt] != "true" {
+		t.Errorf("claim annotation = %q", claim.Annotations[sandbox.AnnotationSuspendExempt])
+	}
+
+	w = doReq(t, h, "PUT", "/api/v1/users/seeduser/suspend-exempt", `{"exempt":false}`, true)
+	if w.Code != http.StatusOK {
+		t.Fatalf("clear exempt: %d %s", w.Code, w.Body)
+	}
+	resp = map[string]any{}
+	_ = json.Unmarshal(w.Body.Bytes(), &resp)
+	if resp["suspendExempt"] != false {
+		t.Errorf("response suspendExempt after clear = %v", resp["suspendExempt"])
+	}
+
+	if w := doReq(t, h, "PUT", "/api/v1/users/seeduser/suspend-exempt", `{}`, true); w.Code != http.StatusBadRequest {
+		t.Errorf("missing exempt field: %d", w.Code)
+	}
+	if w := doReq(t, h, "PUT", "/api/v1/users/ghost/suspend-exempt", `{"exempt":true}`, true); w.Code != http.StatusNotFound {
+		t.Errorf("ghost: %d", w.Code)
+	}
+	if w := doReq(t, h, "PUT", "/api/v1/users/seeduser/suspend-exempt", `{"exempt":true}`, false); w.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated: %d", w.Code)
+	}
+}
+
 func TestRotateToken(t *testing.T) {
 	h, clients := newServer(t, "seeduser")
 	w := doReq(t, h, "POST", "/api/v1/users/seeduser/token", "", true)

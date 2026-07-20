@@ -1,0 +1,24 @@
+# UX latency budgets — GKE (gVisor + PD attach + Spot + LoadBalancer).
+# All values in ms.
+#
+# PROVISIONAL: seeded from measured values (resume 20-24s gVisor, warm
+# adoption ~2s + LB variance, cold node-less provision up to ~72s) with
+# headroom for Spot/LB noise. The resume budget MUST stay below the 60s
+# WAKE_TIMEOUT — past that the gateway 503s and the bench measures the
+# retry path instead of the hold.
+env: gke
+allowedWakeErrors: 0
+required:
+  - baseline-always-alive
+  - resume-suspended
+  - new-agent-warm
+scenarios:
+  baseline-always-alive: { p50: 600, p95: 1500, max: 3000 }
+  resume-suspended: { p50: 30000, max: 45000 }
+  new-agent-warm: { p50: 8000, max: 20000 }
+  # Cold on GKE is opt-in (DRAIN=1): draining the pool degrades real signups.
+  new-agent-cold: { p50: 90000, max: 180000 }
+  baseline-ttft: { p50: 8000, max: 20000 }
+  resume-suspended-ttft: { p50: 35000, max: 58000 }
+comparisons:
+  suspendUXTaxP50Max: 35000
