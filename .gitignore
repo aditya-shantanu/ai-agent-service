@@ -19,7 +19,7 @@ coverage.html
 .vscode/
 
 # Benchmark snapshots (raw runs; keep interesting ones by copying)
-/bench/results/
+/benchmarks/results/
 
 # Local tooling state
 /.kube/

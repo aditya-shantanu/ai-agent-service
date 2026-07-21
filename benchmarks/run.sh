@@ -5,7 +5,7 @@
 #
 #   ENV=kind|gke  target environment (default kind)
 #   NS=...        namespace (default hermes-users)
-#   CHECK=1       gate against bench/budgets-$ENV.yaml (exit 1 on violation)
+#   CHECK=1       gate against benchmarks/budgets-$ENV.yaml (exit 1 on violation)
 #   TTFT=1        add streamed chat TTFT scenarios (needs provider key; costs credits)
 #   DRAIN=1       allow the cold scenario on GKE too (kind allows by default)
 #   BENCH_ARGS=   extra flags passed through (e.g. "-scenarios resume,baseline")

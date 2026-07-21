@@ -3,7 +3,7 @@
 # PROVISIONAL: seeded from the measured numbers in README "Validations"
 # (warm adoption ≤2s, resume ~4s kind, m2 rehearsal's ≤15s provision bound)
 # with ~2x headroom for laptop noise. Tighten after three green `make bench`
-# snapshots — the numbers in bench/results/ are the evidence.
+# snapshots — the numbers in benchmarks/results/ are the evidence.
 env: kind
 allowedWakeErrors: 0
 required:

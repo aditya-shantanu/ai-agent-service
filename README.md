@@ -273,7 +273,7 @@ tab closes.
 
 ### Benchmarking UX (the cost/experience trade)
 
-**`make bench`** (`cmd/hermes-bench` via `hack/bench.sh`) turns the
+**`make bench`** (`cmd/hermes-bench` via `benchmarks/run.sh`) turns the
 scattered latency claims above into a repeatable measurement with a
 contract. It times the two user-facing moments — signup (`POST
 /api/v1/users`, warm and drained-pool cold) and coming back (wake-on-connect
@@ -282,11 +282,11 @@ against an explicitly suspended agent) — and compares them against an
 experience). The headline output is the **suspension UX tax** (resume p50 −
 baseline p50): the seconds of user experience each dollar of cost
 optimization spends. `make bench-check` additionally gates against the
-per-environment budgets in `bench/budgets-{kind,gke}.yaml` (exit 1 on
+per-environment budgets in `benchmarks/budgets-{kind,gke}.yaml` (exit 1 on
 regression); `make bench-gke` runs the same suite against the GKE
 LoadBalancer, where gVisor + PD attach dominate. `TTFT=1` adds streamed
 chat time-to-first-token scenarios (spends LLM credits). Details, scenario
-matrix and budget semantics: `bench/README.md`.
+matrix and budget semantics: `benchmarks/README.md`.
 
 ## Status
 

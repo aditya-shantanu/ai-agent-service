@@ -54,13 +54,13 @@ bench-build: ## Build the UX benchmark CLI (cmd/hermes-bench)
 	go build -o bin/hermes-bench ./cmd/hermes-bench
 
 bench: bench-build ## UX benchmark vs kind: new+resume vs always-alive baseline (report + snapshot)
-	ENV=kind NS=$(NAMESPACE) hack/bench.sh
+	ENV=kind NS=$(NAMESPACE) benchmarks/run.sh
 
-bench-check: bench-build ## Benchmark kind and FAIL if bench/budgets-kind.yaml is exceeded
-	ENV=kind NS=$(NAMESPACE) CHECK=1 hack/bench.sh
+bench-check: bench-build ## Benchmark kind and FAIL if benchmarks/budgets-kind.yaml is exceeded
+	ENV=kind NS=$(NAMESPACE) CHECK=1 benchmarks/run.sh
 
 bench-gke: bench-build ## UX benchmark vs GKE (CHECK=1 to gate, TTFT=1 for chat TTFT, DRAIN=1 for cold)
-	ENV=gke NS=$(NAMESPACE) hack/bench.sh
+	ENV=gke NS=$(NAMESPACE) benchmarks/run.sh
 
 set-provider-key: ## Load LLM provider keys from .env into the cluster (kind or GKE)
 	@test -f .env || (echo "No .env file — copy .env.example to .env and fill in your key" && exit 1)

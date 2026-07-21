@@ -14,7 +14,7 @@ metadata, and client wall-time is the UX anyway.
 make bench          # kind: full report + JSON snapshot
 make bench-check    # kind: same, plus budget gate (exit 1 on violation)
 make bench-gke      # GKE via the LoadBalancer (CHECK=1 / TTFT=1 / DRAIN=1)
-TTFT=1 BENCH_ARGS="-scenarios resume,baseline" hack/bench.sh   # chat TTFT only
+TTFT=1 BENCH_ARGS="-scenarios resume,baseline" benchmarks/run.sh   # chat TTFT only
 ```
 
 Requires a deployed hermes-service (`make dev` or `make deploy-gke`).
@@ -47,12 +47,12 @@ measured against (budget key `comparisons.suspendUXTaxP50Max`).
 
 ## Budgets & snapshots
 
-- `bench/budgets-kind.yaml`, `bench/budgets-gke.yaml` — the per-environment
+- `benchmarks/budgets-kind.yaml`, `benchmarks/budgets-gke.yaml` — the per-environment
   latency contract. Only present keys are enforced; budgeted-but-skipped
   scenarios warn unless listed under `required:`. Numbers are PROVISIONAL
   until calibrated: after three green runs, tighten toward observed
   p50 × 1.5 / max × 2.
-- `bench/results/<env>-<timestamp>.json` (gitignored) — full snapshot with
+- `benchmarks/results/<env>-<timestamp>.json` (gitignored) — full snapshot with
   raw samples, comparisons, git commit and budget verdict. Keep interesting
   ones (before/after a cost change) by copying them elsewhere or attaching
   to the PR.
@@ -62,7 +62,7 @@ measured against (budget key `comparisons.suspendUXTaxP50Max`).
 - Benchmark users are named `bench-*`; every scenario deletes its users
   even on failure or Ctrl-C.
 - The cold scenario restores the warm pool replicas itself, and
-  `hack/bench.sh` re-restores in a trap; if both die, `helm upgrade`
+  `benchmarks/run.sh` re-restores in a trap; if both die, `helm upgrade`
   (or `kubectl -n hermes-users patch sandboxwarmpool hermes-pool --type
   merge -p '{"spec":{"replicas":N}}'`) puts it back.
 - On GKE, draining the pool (DRAIN=1) degrades real signups for the

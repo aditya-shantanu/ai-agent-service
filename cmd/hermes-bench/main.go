@@ -2,7 +2,7 @@
 // critical moments — first contact (new agent) and coming back (resume) —
 // and compares the cost-optimized lifecycle against an always-alive
 // baseline agent. Run via `make bench` / `make bench-check` (kind) or
-// `make bench-gke`; see bench/README.md.
+// `make bench-gke`; see benchmarks/README.md.
 package main
 
 import (
@@ -27,8 +27,8 @@ func main() {
 		iterations     = flag.Int("iterations", 0, "override per-scenario iteration defaults (0 = defaults)")
 		ttft           = flag.Bool("ttft", false, "add streamed chat time-to-first-token scenarios (costs LLM credits)")
 		check          = flag.Bool("check", false, "evaluate latency budgets; exit 1 on violation")
-		budgetFile     = flag.String("budget-file", "", "budget YAML (default bench/budgets-<env>.yaml)")
-		jsonOut        = flag.String("json-out", "", "snapshot path (default bench/results/<env>-<timestamp>.json, \"-\" = none)")
+		budgetFile     = flag.String("budget-file", "", "budget YAML (default benchmarks/budgets-<env>.yaml)")
+		jsonOut        = flag.String("json-out", "", "snapshot path (default benchmarks/results/<env>-<timestamp>.json, \"-\" = none)")
 		userPrefix     = flag.String("user-prefix", "bench", "user ID prefix for benchmark users")
 		allowPoolDrain = flag.Bool("allow-pool-drain", false, "allow the cold scenario to scale the warm pool to 0 (degrades real signups while draining)")
 		kubeContext    = flag.String("kube-context", "", "kubeconfig context for pool control (empty = current)")
@@ -125,7 +125,7 @@ func main() {
 	if *check {
 		bf := *budgetFile
 		if bf == "" {
-			bf = "bench/budgets-" + *envName + ".yaml"
+			bf = "benchmarks/budgets-" + *envName + ".yaml"
 		}
 		budget, err := bench.LoadBudget(bf)
 		if err != nil {
@@ -141,7 +141,7 @@ func main() {
 
 	out := *jsonOut
 	if out == "" {
-		out = fmt.Sprintf("bench/results/%s-%s.json", *envName, result.StartedAt.Format("20060102T150405Z"))
+		out = fmt.Sprintf("benchmarks/results/%s-%s.json", *envName, result.StartedAt.Format("20060102T150405Z"))
 	}
 	wroteSnapshot := false
 	if out != "-" {
