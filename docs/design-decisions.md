@@ -36,7 +36,7 @@ Every load-bearing decision lives here. If you change one, update this list.
    warns its terminal backend is "local/unsandboxed"; intentional here — an
    agent can only affect its own pod and PVC. On GKE, sandbox pods
    additionally run under **gVisor** (GKE Sandbox, `runtimeClassName:
-   gvisor` in `values-gke.yaml`, pool: `hack/gke-gvisor-pool.sh`): agent
+   gvisor` in `values-gke.yaml`, pool: `scripts/gke-gvisor-pool.sh`): agent
    syscalls hit the userspace Sentry, not the host kernel, closing the
    container-escape class NetworkPolicy can't. Measured cost (2026-07-17):
    +~35–45 MiB pod memory (Sentry+gofer, ~15% over the 248 MiB runc RSS),
@@ -149,7 +149,7 @@ Every load-bearing decision lives here. If you change one, update this list.
     secret *container*, and ESO's IAM binding. Deliberately NOT Terraform:
     secret *values* (never in TF state — pushed from `.env` via
     `make gsm-push-key`) and the swap node pool (provider doesn't expose
-    `swapConfig` yet — `hack/gke-swap-pool.sh`, idempotent via
+    `swapConfig` yet — `scripts/gke-swap-pool.sh`, idempotent via
     `make gke-swap-pool`).
 
 ### Cost posture (measured — see costcalc/)

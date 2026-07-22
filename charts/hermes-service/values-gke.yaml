@@ -19,14 +19,14 @@ idle:
 
 sandbox:
   # Kernel-syscall isolation: agents run inside gVisor (GKE Sandbox) on the
-  # hermes-gvisor-pool (hack/gke-gvisor-pool.sh). GKE's gvisor RuntimeClass
+  # hermes-gvisor-pool (scripts/gke-gvisor-pool.sh). GKE's gvisor RuntimeClass
   # auto-adds the sandbox.gke.io/runtime nodeSelector + toleration.
   # Rollback: comment this out and cycle warm spares (pods land back on the
   # runc swap pool via the hermes-swap selector below).
   runtimeClassName: gvisor
   storage:
     storageClassName: ""   # GKE default (standard-rwo)
-  # Sandboxes run on the swap-enabled Spot pool (hack/gke-swap-pool.sh;
+  # Sandboxes run on the swap-enabled Spot pool (scripts/gke-swap-pool.sh;
   # gcloud-managed until the Terraform provider exposes swapConfig).
   # Spot preemption == an unscheduled suspend; the platform absorbs it.
   # Rollback: flip selectors back to hermes-sandbox (terraform sandbox-pool).

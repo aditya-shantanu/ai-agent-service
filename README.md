@@ -42,7 +42,7 @@ make set-provider-key       # loads .env into the cluster, cycles warm spares
 
 # Interactive console (kind or GKE): create/list/suspend/resume/delete
 # agents, chat, run e2e, deploy — menu-driven, loops until you quit:
-hack/console.sh
+scripts/console.sh
 
 # PRODUCTION: one command does everything (Terraform infra, images, ESO,
 # Secret Manager key push, swap pool, helm) — see docs/gke.md
@@ -248,7 +248,7 @@ Layout: `cmd/{gateway,hermes-bench}` ·
 `internal/{config,server,api,auth,sandbox,proxy,idle,telegram,bench}` ·
 `charts/hermes-service` (Helm) · `terraform/` (GCP infra) · `benchmarks/`
 (UX latency budgets + runner) · `costcalc/` ($/agent model + cost roadmap) ·
-`hack/` (kind bootstrap, e2e, simulation, GKE pools) · `docs/` (API, GKE,
+`scripts/` (kind bootstrap, e2e, simulation, GKE pools) · `docs/` (API, GKE,
 design decisions, validation log, image contract, cron design, Envoy
 proposal).
 

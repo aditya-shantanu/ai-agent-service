@@ -5,7 +5,7 @@
 # load provider keys. Each action runs the underlying make target /
 # gateway API call / kubectl for you, then returns to the menu.
 #
-#   hack/console.sh
+#   scripts/console.sh
 #
 # Works on stock macOS bash 3.2. Tokens created/rotated in this session are
 # remembered (in-memory only) so chat/dashboard "just work" for them.

@@ -16,7 +16,7 @@ IAM binding that lets External Secrets Operator sync them.
 ## Node pools: why some are managed outside Terraform
 
 The swap-enabled sandbox pools (`hermes-swap-pool`, `hermes-gvisor-pool`) are
-created by `hack/gke-swap-pool.sh` / `hack/gke-gvisor-pool.sh` via gcloud,
+created by `scripts/gke-swap-pool.sh` / `scripts/gke-gvisor-pool.sh` via gcloud,
 because the Terraform google provider does not yet expose kubelet
 `swapConfig`. Terraform additionally keeps a plain (non-swap) Spot
 `sandbox-pool` as a rollback target. Once the provider supports swap

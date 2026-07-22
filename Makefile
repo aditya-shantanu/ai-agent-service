@@ -27,13 +27,13 @@ lint: ## gofmt + go vet
 	go vet ./...
 
 validate-hermes-image: ## Validate the pinned Hermes image contract (needs Docker)
-	HERMES_IMAGE=$(HERMES_IMAGE) hack/validate-hermes-image.sh
+	HERMES_IMAGE=$(HERMES_IMAGE) scripts/validate-hermes-image.sh
 
 image: ## Build the gateway container image
 	docker build -t $(GATEWAY_IMAGE) .
 
 kind-up: ## Create kind cluster + install agent-sandbox (pinned)
-	AGENT_SANDBOX_VERSION=$(AGENT_SANDBOX_VERSION) CLUSTER_NAME=$(KIND_CLUSTER) hack/kind-up.sh
+	AGENT_SANDBOX_VERSION=$(AGENT_SANDBOX_VERSION) CLUSTER_NAME=$(KIND_CLUSTER) scripts/kind-up.sh
 
 kind-load: image ## Load the gateway image into the kind cluster
 	docker save $(GATEWAY_IMAGE) -o /tmp/hermes-gateway-img.tar
@@ -49,10 +49,10 @@ dev: kind-up deploy-kind ## LOCAL MODE: kind cluster + deploy (aggressive idle w
 	@echo "Local dev deployment ready. Next: make e2e  or  make simulate-users"
 
 e2e: ## Run the full-loop e2e test (expects deploy-kind done)
-	NS=$(NAMESPACE) hack/e2e.sh
+	NS=$(NAMESPACE) scripts/e2e.sh
 
 simulate-users: ## Emulate N concurrent users (USERS=3): provision, traffic, idle, wake
-	NS=$(NAMESPACE) USERS=$(or $(USERS),3) hack/simulate-users.sh
+	NS=$(NAMESPACE) USERS=$(or $(USERS),3) scripts/simulate-users.sh
 
 bench-build: ## Build the UX benchmark CLI (cmd/hermes-bench)
 	go build -o bin/hermes-bench ./cmd/hermes-bench
@@ -111,12 +111,12 @@ gsm-push-key: ## Push local .env values to Google Secret Manager (container+IAM 
 gke-swap-pool: ## Ensure the swap-enabled Spot sandbox pool exists (runc rollback pool)
 	$(require-project)
 	@gcloud container node-pools describe hermes-swap-pool --cluster $(GKE_CLUSTER) --zone $(GKE_ZONE) --project $(GCP_PROJECT) >/dev/null 2>&1 \
-	  && echo "hermes-swap-pool already exists" || GCP_PROJECT=$(GCP_PROJECT) GKE_CLUSTER=$(GKE_CLUSTER) GKE_ZONE=$(GKE_ZONE) hack/gke-swap-pool.sh
+	  && echo "hermes-swap-pool already exists" || GCP_PROJECT=$(GCP_PROJECT) GKE_CLUSTER=$(GKE_CLUSTER) GKE_ZONE=$(GKE_ZONE) scripts/gke-swap-pool.sh
 
 gke-gvisor-pool: ## Ensure the gVisor (GKE Sandbox) swap-enabled Spot sandbox pool exists
 	$(require-project)
 	@gcloud container node-pools describe hermes-gvisor-pool --cluster $(GKE_CLUSTER) --zone $(GKE_ZONE) --project $(GCP_PROJECT) >/dev/null 2>&1 \
-	  && echo "hermes-gvisor-pool already exists" || GCP_PROJECT=$(GCP_PROJECT) GKE_CLUSTER=$(GKE_CLUSTER) GKE_ZONE=$(GKE_ZONE) hack/gke-gvisor-pool.sh
+	  && echo "hermes-gvisor-pool already exists" || GCP_PROJECT=$(GCP_PROJECT) GKE_CLUSTER=$(GKE_CLUSTER) GKE_ZONE=$(GKE_ZONE) scripts/gke-gvisor-pool.sh
 
 deploy-gke: infra-apply images-push sandbox-install eso-install gsm-push-key gke-gvisor-pool ## PRODUCTION MODE: full GKE setup + deploy
 	$(require-project)

@@ -8,9 +8,9 @@
 # single request transparently wake a suspended agent.
 #
 # Usage:
-#   hack/simulate-users.sh                # 3 users against ns hermes-users
-#   USERS=5 NS=hermes-users PORT=18095 hack/simulate-users.sh
-#   KEEP=1 hack/simulate-users.sh         # leave the users running afterwards
+#   scripts/simulate-users.sh                # 3 users against ns hermes-users
+#   USERS=5 NS=hermes-users PORT=18095 scripts/simulate-users.sh
+#   KEEP=1 scripts/simulate-users.sh         # leave the users running afterwards
 #
 # Works against any deployment (kind or GKE) reachable via kubectl.
 # NOTE: the idle-suspension phase is only fast enough to watch when the

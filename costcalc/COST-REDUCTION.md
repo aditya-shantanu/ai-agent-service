@@ -178,8 +178,8 @@ swap-less pool → at-scale compute share $0.23 → ~$0.03; floor approaches
 Caveats before productionizing: pods ran without PVCs; agents were idle
 (mixed-load thrash threshold NOT probed — we stopped at 200-healthy, the
 CPU-request budget, not a swap failure); Terraform provider doesn't expose
-`swapConfig` yet (pools are created by `hack/gke-swap-pool.sh` /
-`hack/gke-gvisor-pool.sh`; see `terraform/README.md`).
+`swapConfig` yet (pools are created by `scripts/gke-swap-pool.sh` /
+`scripts/gke-gvisor-pool.sh`; see `terraform/README.md`).
 Productionizing = swap-enabled Spot pool + requests ~100m/256Mi + a
 mixed-load density sweep to find the real thrash cliff.
 
@@ -196,7 +196,7 @@ PVCs; the dedicated-swap profile also requires ephemeral-storage LSSDs):
   28 ms avg responses, memory PSI 0.00, load 0.33.
 - Deployed: chart requests 100m/256Mi (Burstable — required for kubelet
   swap), sandboxes scheduled to `hermes-swap` pool
-  (`hack/gke-swap-pool.sh`; gcloud-managed until the Terraform provider
+  (`scripts/gke-swap-pool.sh`; gcloud-managed until the Terraform provider
   exposes `swapConfig`), warm spares migrated, e2e green.
 - **New floor: ~$0.14/agent** ($93/mo node ÷ 62 slots × duty×peak + disk).
   Next squeeze documented: n2d-highcpu + swap-backed overcommit and/or

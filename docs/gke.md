@@ -58,7 +58,7 @@ kubectl -n hermes-users get svc hermes-gateway -w
 ## Verify
 
 ```sh
-NS=hermes-users hack/e2e.sh    # same 11-check suite as kind
+NS=hermes-users scripts/e2e.sh    # same 11-check suite as kind
 ```
 
 Note the e2e uses a port-forward, so it works before the LB is provisioned.
@@ -74,7 +74,7 @@ Note the e2e uses a port-forward, so it works before the LB is provisioned.
   sub-second from swap residency; cold resumes measure ~20–24s under
   gVisor (~11–14s on the runc rollback pool).
 - **gVisor hardening is enabled by default** (2026-07-17): sandboxes run
-  under GKE Sandbox on `hermes-gvisor-pool` (`hack/gke-gvisor-pool.sh` —
+  under GKE Sandbox on `hermes-gvisor-pool` (`scripts/gke-gvisor-pool.sh` —
   same Spot n2d + LSSD-swap shape as the runc pool, plus
   `--sandbox type=gvisor`), selected via `sandbox.runtimeClassName: gvisor`
   in `values-gke.yaml`. GKE's `gvisor` RuntimeClass auto-adds the

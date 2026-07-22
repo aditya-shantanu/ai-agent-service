@@ -46,7 +46,7 @@ resource "google_container_node_pool" "system" {
 }
 
 # Rollback sandbox pool (idle): sandboxes normally run on the gcloud-managed
-# LSSD-swap pool (hack/gke-swap-pool.sh; see terraform/README.md for why it
+# LSSD-swap pool (scripts/gke-swap-pool.sh; see terraform/README.md for why it
 # is not Terraform-managed) — this plain pool is kept as an instant rollback
 # target (flip values-gke selectors back). Spot VMs — the platform is
 # restart-tolerant by design

@@ -32,4 +32,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Shellcheck
-        run: shellcheck hack/*.sh benchmarks/run.sh
+        run: shellcheck scripts/*.sh benchmarks/run.sh

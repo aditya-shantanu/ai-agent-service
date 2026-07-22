@@ -4,7 +4,7 @@ We run the **upstream image unmodified**: `nousresearch/hermes-agent:v2026.7.7.2
 (Docker Hub, pinned release tag; mirrored to Artifact Registry for GKE).
 No custom Dockerfile is needed — everything the platform requires is driven by
 environment variables and the s6-overlay supervision baked into the image.
-Every claim below was validated hands-on with `hack/validate-hermes-image.sh`.
+Every claim below was validated hands-on with `scripts/validate-hermes-image.sh`.
 
 ## Why no custom image
 
