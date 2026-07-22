@@ -13,7 +13,9 @@ set -u
 
 NS="${NS:-hermes-users}"
 KIND_CTX="${KIND_CTX:-kind-hermes-svc}"
-GKE_CTX="${GKE_CTX:-gke_gke-ai-eco-dev_us-central1-a_hermes-svc}"
+# GKE context is derived from your project/zone/cluster (kubectl's
+# gke_<project>_<zone>_<cluster> convention) or set GKE_CTX directly.
+GKE_CTX="${GKE_CTX:-gke_${GCP_PROJECT:-}_${GKE_ZONE:-us-central1-a}_${GKE_CLUSTER:-hermes-svc}}"
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CURL="curl -s -m 150"
 

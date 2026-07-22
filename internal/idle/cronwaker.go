@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
 )
 
 // CronWaker resumes suspended sandboxes just before their next Hermes cron

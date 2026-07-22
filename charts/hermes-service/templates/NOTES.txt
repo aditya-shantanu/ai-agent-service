@@ -31,5 +31,7 @@ PREREQUISITE CHECK — agent-sandbox CRDs must exist (install once per cluster):
    Web dashboard: open http://$GW/u/alice/?token=USER_TOKEN and log in with
    the platform dashboard credentials (secret: {{ include "hermes.platformSecretName" . }}).
 
-Idle agents suspend automatically after {{ .Values.idle.timeout }} (pod deleted,
-memory/sessions kept on PVC) and wake transparently on the next request.
+Idle agents suspend adaptively — {{ .Values.idle.timeout }} after an isolated
+request, {{ .Values.idle.activeTimeout }} while a conversation is active —
+(pod deleted, memory/sessions kept on PVC) and wake transparently on the
+next request.

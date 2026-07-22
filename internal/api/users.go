@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/auth"
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
-	"github.com/adityashantanu/ai-agent-service/internal/telegram"
+	"github.com/aditya-shantanu/ai-agent-service/internal/auth"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/telegram"
 )
 
 // ActivityTracker is the part of the idle tracker the API must drive:

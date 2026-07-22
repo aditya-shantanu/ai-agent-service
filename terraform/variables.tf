@@ -1,7 +1,6 @@
 variable "project_id" {
-  description = "GCP project to deploy into"
+  description = "GCP project to deploy into (no default — pass -var or set TF_VAR_project_id)"
   type        = string
-  default     = "gke-ai-eco-dev"
 }
 
 variable "zone" {

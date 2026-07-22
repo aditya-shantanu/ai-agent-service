@@ -52,9 +52,9 @@ sandbox:
   tolerations: []
   # Container runtime for sandbox pods. Set to "gvisor" to run agents inside
   # gVisor (kernel-syscall isolation on top of the NetworkPolicy boundary):
-  # on GKE this targets a GKE Sandbox node pool (hack/gke-gvisor-pool.sh);
-  # on kind it requires runsc installed in the node (hack/kind-gvisor.sh).
-  # Empty string = the cluster's default runtime (runc).
+  # on GKE this targets a GKE Sandbox node pool (hack/gke-gvisor-pool.sh).
+  # Not supported on kind (the Hermes image's setuid bootstrap fails under
+  # kind's runsc). Empty string = the cluster's default runtime (runc).
   runtimeClassName: ""
   storage:
     size: 2Gi

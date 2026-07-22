@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Lint (gofmt + go vet)
+        run: make lint
+      - name: Unit tests
+        run: make test
+
+  helm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Helm lint
+        run: helm lint charts/hermes-service -f charts/hermes-service/values-kind.yaml
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    continue-on-error: true # advisory: shell style, not correctness
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shellcheck
+        run: shellcheck hack/*.sh benchmarks/run.sh

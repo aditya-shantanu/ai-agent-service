@@ -1,5 +1,10 @@
 # Plan: production data plane on Envoy (v2 architecture)
 
+> **STATUS: PROPOSAL — not implemented.** The deployed data plane is the Go
+> gateway described in the README. This document is a researched design for
+> a future scale-out, kept because its findings (especially the GKE verdict)
+> were expensive to establish.
+
 **Status: proposed** (deep-researched 2026-07-16; findings adversarially
 verified against primary sources — Envoy docs/PRs, Knative/KEDA source and
 design docs). Motivation: the v1 gateway is a single-replica Go proxy that

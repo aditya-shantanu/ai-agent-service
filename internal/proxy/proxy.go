@@ -19,9 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/auth"
-	"github.com/adityashantanu/ai-agent-service/internal/idle"
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/auth"
+	"github.com/aditya-shantanu/ai-agent-service/internal/idle"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
 )
 
 type Proxy struct {

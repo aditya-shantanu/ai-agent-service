@@ -89,36 +89,51 @@ sequenceDiagram
 | Waker misses the time (gateway restart/downtime) | Harmless — on the next wake from ANY cause, Hermes catch-up fires the job once. The annotation persists, so the waker fires late rather than never. |
 | Telegram users | Already suspend-exempt; their in-pod cron just runs. This design only matters for suspendable users. |
 | One-shot jobs (`run_at`) | Same jobs.json shape; earliest-time logic covers them (ONESHOT_GRACE in Hermes tolerates modest lateness). |
-| Many users, same cron time (herd) | Waker resumes are staggered by the 30s tick granularity and warm resume is ~4–14s; acceptable at current scale. At 10k users, batch/stagger the waker (v2, and see the Envoy plan's mass-wake spike S4). |
+| Many users, same cron time (herd) | Waker resumes are staggered by the 30s tick granularity; resume is ~4s on kind / ~20–24s under gVisor on GKE (tracked by `make bench`). Acceptable at current scale; at 10k users, batch/stagger the waker (v2, and see the Envoy plan's mass-wake spike S4). |
 
 ## Phase 2 (when upstream stabilizes `CronScheduler`)
 
-Ship a `plugins/cron_providers/` provider for Hermes (selected via
-`cron.provider` in the seeded config) that pushes schedule changes to the
-platform in real time: on `on_jobs_changed`, it calls a small gateway
-endpoint (`PUT /api/v1/users/{id}/next-cron`, authenticated with the
-sandbox's platform credential) to update the claim annotation the moment a
-user adds/edits/removes a job — eliminating the exec-read at suspend time
-and any staleness. The platform waker then calls `fire_due` (or keeps using
-`cron tick`). This is the upstream-blessed end state; we don't build it
-while the interface can change without deprecation.
+Adopt Hermes' pluggable provider interface (today EXPERIMENTAL upstream: one
+consumer, and the hooks it needs — `on_jobs_changed`/`fire_due`/`reconcile`
+— are planned but not shipped). Proposed integration once ready:
+
+1. **Ship a provider plugin** (`plugins/cron_providers/k8s_platform/`)
+   baked into the Hermes image config seed and selected via
+   `cron.provider: k8s_platform` in the bootstrap `config.yaml`. Its
+   `is_available()` checks for the platform env (`PLATFORM_CRON_ENDPOINT`
+   injected by the SandboxTemplate); on any failure Hermes auto-falls back
+   to the built-in 60s ticker, so worst case equals today's behavior.
+2. **Push, don't peek**: on `on_jobs_changed`, the provider POSTs the
+   job list's earliest `next_run_at` to a small gateway endpoint
+   (`PUT /api/v1/users/{id}/next-cron`, authenticated with the shared
+   in-sandbox platform credential; the gateway maps pod identity → user
+   via the `sandbox.users.io/hermes-user` pod label). The gateway writes
+   the same `next-cron-wake` claim annotation used today — the waker loop
+   is unchanged. This deletes the exec-read-at-suspend capture and its
+   only staleness window (jobs edited between capture and suspend).
+3. **Fire via the interface**: the waker calls the provider's `fire_due`
+   (through a gateway→pod call or exec) instead of `hermes cron tick`,
+   letting Hermes own dedup/catch-up semantics natively; `reconcile` on
+   boot replaces the reliance on implicit boot catch-up.
+4. **Migration is additive**: annotation names, waker loop, and grace
+   window all stay; only the annotation's *writer* changes. Run both
+   paths in parallel behind a `cron.pushProvider` values flag until the
+   upstream interface is declared stable, then delete `cronpeek.go`.
+
+This is the upstream-blessed end state; it isn't built while the interface
+can change without deprecation.
 
 ## Cost model
 
 A user with one daily job costs ~`grace + idle timeout` of runtime per day
 (~3 min with defaults) instead of 24h always-on: the cost saving survives.
 
-## Implementation checklist (when approved)
+## Implementation notes (as shipped)
 
 - `internal/sandbox/cronpeek.go`: exec + parse jobs.json → earliest
-  `next_run_at` (reuse the Telegram `ExecRunner` interface + fake for tests).
-- Suspend paths (`Lifecycle.Suspend`, idle sweeper) capture + annotate.
-- `internal/idle/cronwaker.go`: waker loop; sweeper honors `cron-grace-until`.
-- Config/chart: `cron.grace` (default 5m), waker interval.
-- Unit tests: capture logic (fake exec), waker due/not-due matrix,
-  sweeper-grace interaction, jobs.json parse edge cases (disabled jobs,
-  no jobs, malformed).
-- e2e check #11: create user → exec `hermes cron add` (a 2-minute interval
-  marker job writing to `/opt/data/cron-marker`) → let idle suspend → assert
-  waker resumes and the marker appears without any user traffic → assert
-  re-suspension afterwards.
+  `next_run_at` (reuses the Telegram `ExecRunner` interface + fake in tests).
+- Both suspend paths (`Lifecycle.Suspend`, idle sweeper) capture + annotate.
+- `internal/idle/cronwaker.go`: 30s waker loop; sweeper honors
+  `cron-grace-until`. `cron.grace` chart value, default 2m.
+- Proven end-to-end by e2e check #9: a scheduled job resumes a suspended
+  sandbox and fires with zero user traffic, then the user re-suspends.

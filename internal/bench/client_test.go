@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/bench"
+	"github.com/aditya-shantanu/ai-agent-service/internal/bench"
 )
 
 // TestStreamChatTTFT verifies TTFT means first *token*, not first byte:

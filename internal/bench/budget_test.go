@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adityashantanu/ai-agent-service/internal/bench"
+	"github.com/aditya-shantanu/ai-agent-service/internal/bench"
 )
 
 const budgetYAML = `env: kind

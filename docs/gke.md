@@ -1,4 +1,4 @@
-# Deploying to GKE (`gke-ai-eco-dev`)
+# Deploying to GKE
 
 ## One-time setup
 
@@ -10,10 +10,11 @@ Secrets Operator read it. The secret *value* is deliberately NOT in Terraform
 (API keys must never enter TF state) — it is pushed from your local `.env`.
 
 ```sh
+export GCP_PROJECT=<your-gcp-project>   # required by all GKE-touching targets
 gcloud auth application-default login   # credentials for Terraform
 gcloud auth configure-docker us-central1-docker.pkg.dev
 
-cd terraform && terraform init && terraform apply   # or: make infra-apply
+make infra-apply   # or: cd terraform && terraform apply -var project_id=$GCP_PROJECT
 ```
 
 ## Deploy
@@ -22,8 +23,11 @@ One command does everything (idempotent — safe to re-run):
 
 ```sh
 cp .env.example .env    # fill in GEMINI_API_KEY etc. (gitignored)
-make deploy-gke
+make deploy-gke GCP_PROJECT=<your-gcp-project>
 ```
+
+(The chart's `values-gke.yaml` carries `PROJECT_ID` placeholders; the
+Makefile injects your real image paths and project via `--set-string`.)
 
 That target sets up, in order:
 
@@ -54,7 +58,7 @@ kubectl -n hermes-users get svc hermes-gateway -w
 ## Verify
 
 ```sh
-NS=hermes-users hack/e2e.sh    # same 10-check suite as kind
+NS=hermes-users hack/e2e.sh    # same 11-check suite as kind
 ```
 
 Note the e2e uses a port-forward, so it works before the LB is provisioned.

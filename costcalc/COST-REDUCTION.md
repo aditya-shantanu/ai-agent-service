@@ -36,10 +36,12 @@ on-demand, 2 vCPU/2 GB requests).
 1. **Right-sized requests** — requests 500m/1Gi (limits 2 vCPU/2Gi) instead
    of 2/2 flat. Requests are what bind bin-packing; limits keep burst room.
    *(chart `sandbox.resources`)*
-2. **Balanced machine shape** — sandbox nodes are `e2-custom-16-20480`
-   (~1.25 GB/vCPU): enough RAM to cover GKE node reservations, none idle.
-   1:4 "standard" shapes waste RAM dollars; 1:1 "highcpu" shapes go
-   RAM-bound after reservations. *(terraform `sandbox_machine_type`)*
+2. **Balanced machine shape** — sandbox nodes were right-shaped to
+   `e2-custom-16-20480` (~1.25 GB/vCPU): enough RAM to cover GKE node
+   reservations, none idle. 1:4 "standard" shapes waste RAM dollars; 1:1
+   "highcpu" shapes go RAM-bound after reservations. *(Superseded by the
+   LSSD-swap `n2d-standard-8` pool below; the e2 shape survives only as the
+   Terraform rollback pool.)*
 3. **Spot sandbox pool** — the platform is restart-tolerant *by design*
    (a preemption is just an unscheduled suspend; PVC survives, sessions
    resume, cron catches up), so sandboxes ride Spot (~70% off). Gateway +
@@ -58,49 +60,72 @@ Result history: $12.88 → ~$0.75–1.00 (Spot/shape/requests) →
 **floor ~$0.14/agent with the swap posture** (2026-07-17). Marginal slot
 cost: $5.57 → $1.50.
 
-## TODO — next levers, in order
+## The cost/UX ledger
 
-4. ~~**Measure, then tighten requests further.**~~ **DONE (2026-07-17):**
-   measured 248 MiB steady-state RSS; requests now 100m/256 MiB (values.yaml).
-   Remaining headroom: sub-100m CPU requests with swap-backed overcommit
-   (pushes past the 62/node CPU ceiling; needs a busier mixed-load sweep).
-5. ~~**Adaptive idle timeout.**~~ **DONE (2026-07-17, Level 1).** The
-   sweeper now uses a 15 s base tail for isolated requests and a 2 m tail
-   while a conversation is active (two activities within `activeTimeout`);
-   conversations pay resume/tail once, not per message. Knobs:
-   `idle.timeout` / `idle.activeTimeout`. Honest model effect with the
-   deployed knobs (2 m active tail, 3 conversations/day, 30 s gaps): the
-   plateau moves ~$0.34 → **~$0.31/agent** — the correction from the
-   earlier ~$0.21 estimate is that conversations pay the *active* tail
-   (120 s), not the base one. At these defaults Level 1 is mostly a UX
-   win (no mid-conversation wakes) + it makes `activeTimeout` the direct
-   cost dial: dropping it to 60 s prices at ~$0.28. Level 2 (in-pod busy
-   probe) and level 3 (predictive/pre-warm) remain future work.
-6. **GKE free tier / fee check.** The $0.10/h cluster fee is waived for one
-   zonal cluster per billing account — this cluster qualifies. Confirm on
-   the bill; if another cluster claims it, that's still ~$73/mo across all
-   agents.
-7. **Committed-use discounts.** Once baseline usage is predictable: 1-yr
+Every optimization bought cost at a price — usually latency. The baseline
+truth: an always-on agent is strictly better UX (zero wake lag, no
+preemption surprises) and costs ~$270/agent/month on this hardware. Each
+row's UX price, honestly, with its mitigation:
+
+| Optimization (in order applied) | Effect on $/agent/month | UX / other downside | Mitigation in place |
+|---|---|---|---|
+| **Suspend-when-idle** (the architecture) | 🟢 ↓ $270 → **$12.88** (21×) — big, but only the first step | **Cold wake: lag when returning after an absence** | Login sessions + memory survive, so lag is the *only* symptom; wake ≈ one LLM turn |
+| **Warm pool** | ≈ neutral (~$3/mo spares) | ✅ none — signup drops to ~2 s (a UX *win*) | — |
+| **Right-sized requests + balanced machine shape** | 🟢 ↓ → **$1.59** | Burst contention if many agents work at once (CPU throttling → slower replies at peak) | Limits keep 2 vCPU of burst headroom; mixed-load tested clean at 4× modeled peak |
+| **Spot sandbox nodes** | 🟢 ↓ → **$0.75** | Rare, *unplanned* stall mid-session on preemption; an in-flight turn can be dropped | Hermes flags sessions `restart_interrupted` and auto-resumes; gateway/controllers stay on-demand |
+| **Adaptive suspension** (15 s / 2 m windows) | ≈ neutral | ✅ conversations pay the cold wake once, not per message; returns after the window still hit it | `idle.activeTimeout` is a per-tier dial (see `../investigations/`) |
+| **LSSD swap + measured requests** (100m/256Mi) | 🟢 ↓ → **$0.14** at-scale floor (slot $5.57 → $1.50, 3.9× density) | Swapped-agent wake +100–400 ms (measured; invisible vs LLM); *theoretical* thrash if far more agents go active than modeled | Mixed-load tested clean at 20% concurrent; PSI alerting is the open TODO |
+| **Cron-aware wake** | ≈ neutral — *protects* the savings (jobs no longer force always-on pods) | Jobs can fire up to ~1 min late; jobs longer than the 2 m grace risk interruption | Hermes boot catch-up fires missed jobs once; `cron.grace` is a knob; Telegram users are exempt entirely |
+| **Startup tuning** (aggressive readiness probe + GKE image streaming) | 🟢 ↓ slightly (shorter resumes = less pod-time) | ✅ cold resume 16–25 s → ~11–14 s on GKE (pre-gVisor; remaining chunk is PD attach) and 12 s → 4 s on kind | — |
+| **Production active window 10 m** (GKE) | 🔴 ↑ ≈ **+$0.06** — accepted | ✅ most same-day returns land on a swapped-resident agent: **sub-second wake instead of cold resume** | Window is a per-tier values knob; swap pool makes residents cheap |
+| **gVisor sandboxing** (GKE Sandbox) | ≈ neutral — no GCP charge, 62 slots/node unchanged (CPU-bound), swap still reclaims Sentry memfd memory | Cold resume **11–14 s → 20–24 s** (+Sentry boot & import gofer tax); +15% memory/agent eats *future* memory-bound squeeze headroom | Agents get kernel-syscall isolation on top of NetworkPolicy; the resume roadmap (stage-in/out storage, boot tuning) attacks the same delta |
+
+The user-visible price of ~1000× cheaper agents is **one cold-start pause
+per return-after-absence, and the occasional Spot hiccup**. Both shrink with
+the roadmap (wider active windows now; stage-in/stage-out storage later
+makes even cold wakes ~1–3 s). The suspension UX tax is now measured
+continuously — `make bench` compares the resume path against an
+always-alive baseline agent and gates on budgets (`../benchmarks/`).
+
+Notes on the adaptive-suspension model effect (Level 1, deployed): with the
+kind knobs (2 m active tail, 3 conversations/day, 30 s gaps) the *pre-swap*
+plateau moved ~$0.34 → ~$0.31/agent — conversations pay the *active* tail
+(120 s), not the base one. At those defaults Level 1 is mostly a UX win (no
+mid-conversation wakes) and it makes `activeTimeout` the direct cost dial.
+Level 2 (in-pod busy probe) and Level 3 (predictive/pre-warm) remain future
+work. These dollar figures predate the swap posture; the current curve is
+the table below.
+
+## Next levers, in order
+
+1. **GKE free tier / fee check.** The $0.10/h cluster fee is waived for one
+   zonal cluster per billing account. Confirm on the bill; if another
+   cluster claims it, that's still ~$73/mo across all agents.
+2. **Committed-use discounts.** Once baseline usage is predictable: 1-yr
    (~37%) or 3-yr (~55%) CUD covering the system pool + the always-on
    fraction of the sandbox pool; Spot continues to cover burst.
-8. **Faster resume — PARTIAL (2026-07-17).** Done: aggressive readiness
+3. **Faster resume — PARTIAL (2026-07-17).** Done: aggressive readiness
    probe (was adding 10–15 s of pure wait: kind resume 12 s → **4 s**; GKE
-   16–25 s → **~11–14 s**) and GKE image streaming on the
+   16–25 s → **~11–14 s** pre-gVisor) and GKE image streaming on the
    swap pool (fast cold nodes). Remaining GKE chunk is **PD attach
    (~10 s)** — owned by the stage-in/stage-out storage design
    (`investigations/resume-latency-and-storage.md`), not by boot tuning.
-9. **Cluster autoscaler on the sandbox pool.** Fixed node counts pay for
+   Resume latency is tracked continuously by `make bench`
+   (`../benchmarks/`).
+4. **Cluster autoscaler on the sandbox pool.** Fixed node counts pay for
    the peak all day. Autoscaling the Spot pool (min 1) trims the off-peak
-   tail; pairs naturally with #7's CUD floor.
-10. **Per-user cost attribution.** Not a reducer, but the prerequisite for
-    pricing: meter pod-seconds + LLM tokens per user (the LLM key is
-    platform-shared today; an LLM proxy with per-user keys/quotas is the
-    end state — see README future work).
+   tail; pairs naturally with #2's CUD floor.
+5. **Per-user cost attribution.** Not a reducer, but the prerequisite for
+   pricing: meter pod-seconds + LLM tokens per user (the LLM key is
+   platform-shared today; an LLM proxy with per-user keys/quotas is the
+   end state — see README future work).
+6. **Sub-100m CPU requests with swap-backed overcommit** — pushes past the
+   62/node CPU ceiling; needs a busier mixed-load sweep first.
 
 Re-derive any scenario by editing the fields in `index.html` — that is the
 tool's job.
 
-## Scale behavior (asked 2026-07-17: "what about a million agents?")
+## Scale behavior: to a million agents
 
 $/agent falls steeply while fixed costs (cluster fee, system pool, warm
 spares) amortize, then **plateaus at the marginal cost** — with the current
@@ -153,7 +178,8 @@ swap-less pool → at-scale compute share $0.23 → ~$0.03; floor approaches
 Caveats before productionizing: pods ran without PVCs; agents were idle
 (mixed-load thrash threshold NOT probed — we stopped at 200-healthy, the
 CPU-request budget, not a swap failure); Terraform provider doesn't expose
-`swapConfig` yet (experiment pool lives in `hack/swap-experiment/`).
+`swapConfig` yet (pools are created by `hack/gke-swap-pool.sh` /
+`hack/gke-gvisor-pool.sh`; see `terraform/README.md`).
 Productionizing = swap-enabled Spot pool + requests ~100m/256Mi + a
 mixed-load density sweep to find the real thrash cliff.
 
@@ -176,8 +202,8 @@ PVCs; the dedicated-swap profile also requires ephemeral-storage LSSDs):
   Next squeeze documented: n2d-highcpu + swap-backed overcommit and/or
   smaller CPU requests push toward ~$0.10; disk is now ~60% of the floor.
 - Rollback: flip `values-gke.yaml` selectors back to `hermes-sandbox`
-  (the Terraform `sandbox-pool` is kept, idle, as instant rollback —
-  ~$89/mo; delete it once the swap pool has a quiet week).
+  (the Terraform `sandbox-pool` is kept, idle, as an instant rollback
+  target — ~$89/mo; remove it once confident in the swap posture).
 
 ## gVisor (GKE Sandbox) impact analysis (2026-07-17): floor unchanged at ~$0.14
 
@@ -205,8 +231,8 @@ the rest), and (b) **latent headroom loss**: the +15% memory/agent shrinks
 the *future* memory-bound squeezes (the 198-agents/node no-PVC experiment
 would land ~15% lower under gVisor, and the sub-100m-CPU-request lever
 gets less room before the thrash cliff). Transitional cost only: the runc
-`hermes-swap-pool` (~$93/mo) stays up as instant rollback — delete it
-after a quiet week, same playbook as the swap migration.
+`hermes-swap-pool` (~$93/mo) stays up as an instant rollback target —
+remove it once confident, same playbook as the swap migration.
 
 Caveats, honestly: GKE Sandbox blocks `kubectl port-forward` to sandboxed
 pods (unused — the gateway proxies via the headless Service) and

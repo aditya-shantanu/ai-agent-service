@@ -38,6 +38,9 @@ floor $/agent         = slot-cost * duty * peak + disk     (fixed costs amortize
 
 ## Defaults = deployed posture (all editable in the UI)
 
+The model assumptions in `COST-REDUCTION.md` are the source of truth; this
+table maps them to the calculator's fields.
+
 | Assumption | Default | Source |
 |---|---|---|
 | Per-agent requests | 100m vCPU / 256 MiB (limits 2 / 2 GiB) | measured: steady-state RSS ~248 MiB runc / ~283 MiB pod-level under gVisor |

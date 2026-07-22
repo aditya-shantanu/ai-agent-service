@@ -49,7 +49,7 @@ Every load-bearing decision lives here. If you change one, update this list.
    traffic (already NetworkPolicy-blocked). kind stays on runc: the
    Hermes image's s6-overlay setuid bootstrap does not elevate under
    kind's runsc (works under GKE's managed gVisor — verified `euid=0`);
-   `hack/kind-gvisor.sh` is the experimental node setup if retrying.
+   Worth retrying as gVisor and kind evolve.
    Existing user Sandboxes keep their stamped runc podTemplate — they
    migrate by Sandbox recreation (delete + re-provision), not by resume;
    warm spares recycle automatically on template change.*
@@ -63,9 +63,10 @@ Every load-bearing decision lives here. If you change one, update this list.
    (`EnvVarsInjectionRejected`) instead of silently cold-starting. The only
    warm-compatible per-claim customization is `additionalPodMetadata`
    (pod labels must use the `sandbox.users.io` domain under default
-   controller flags). Measured: warm adoption ≤2s; resume 4s on kind /
-   ~11–14s on GKE (post probe-tuning + image streaming; GKE delta is PD
-   attach — see `investigations/resume-latency-and-storage.md`).
+   controller flags). Measured: warm adoption ≤2s; resume ~4s on kind /
+   ~20–24s on GKE under gVisor (dominant chunk is PD attach — see
+   `investigations/resume-latency-and-storage.md`; current numbers are
+   tracked by `make bench`, `../benchmarks/`).
 7. **Never set claim `lifecycle`.** Every claim-expiry path deletes the
    Sandbox, which garbage-collects the user's PVC (their entire memory).
    User deletion = delete the claim (deliberate cascade: sandbox + PVC +
@@ -97,8 +98,8 @@ Every load-bearing decision lives here. If you change one, update this list.
     `FlushInterval: -1`, Origin-strip on WebSocket upgrade) are borrowed from
     sandbox-router.
 13. **Wake-on-connect holds the request** (up to `gateway.wakeTimeout`, 60s)
-    rather than failing fast; observed resume is 4s (kind) to ~12s (GKE).
-    Timeout → 503 +
+    rather than failing fast; observed resume is ~4s (kind) to ~20–24s
+    (GKE, gVisor). Timeout → 503 +
     `Retry-After`. It is safe to flip `operatingMode` back to Running
     mid-suspension — never wait for `Suspended=True` first.
 14. **Users with a Telegram token are exempt from idle suspend** by default
@@ -141,7 +142,7 @@ Every load-bearing decision lives here. If you change one, update this list.
     via `secrets.*.existingSecret`. `storageClassName: ""` = cluster default
     (works on kind and GKE). Provider keys go in one Secret injected via
     `envFrom` — add any `*_API_KEY` without touching the chart.
-21. Images for GKE live in Artifact Registry in `gke-ai-eco-dev`
+21. Images for GKE live in Artifact Registry in your GCP project
     (`make images-push` builds amd64 and mirrors the pinned Hermes image).
 22. **GCP infra is Terraform** (`terraform/`): cluster (DPv2 + Workload
     Identity), system node pool, Artifact Registry, the Secret Manager

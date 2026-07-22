@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/bench"
+	"github.com/aditya-shantanu/ai-agent-service/internal/bench"
 )
 
 // fakeGateway is an in-memory hermes-gateway good enough to exercise the

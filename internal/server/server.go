@@ -5,9 +5,9 @@ package server
 import (
 	"net/http"
 
-	"github.com/adityashantanu/ai-agent-service/internal/api"
-	"github.com/adityashantanu/ai-agent-service/internal/auth"
-	"github.com/adityashantanu/ai-agent-service/internal/config"
+	"github.com/aditya-shantanu/ai-agent-service/internal/api"
+	"github.com/aditya-shantanu/ai-agent-service/internal/auth"
+	"github.com/aditya-shantanu/ai-agent-service/internal/config"
 )
 
 func New(cfg *config.Config, h *api.Handlers, proxy http.Handler) http.Handler {

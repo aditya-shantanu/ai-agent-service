@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/adityashantanu/ai-agent-service/internal/bench"
+	"github.com/aditya-shantanu/ai-agent-service/internal/bench"
 )
 
 func TestComputeComparisons(t *testing.T) {
@@ -46,7 +46,7 @@ func TestRenderHuman(t *testing.T) {
 		bench.ScenarioBaseline: result(142, 301, 420),
 		bench.ScenarioNewCold:  {Skipped: true, SkipReason: "pool drain not allowed", Errors: []bench.ErrorEvent{}},
 	})
-	r.Check = &bench.CheckResult{Enabled: true, BudgetFile: "bench/budgets-kind.yaml", Violations: []bench.Violation{}}
+	r.Check = &bench.CheckResult{Enabled: true, BudgetFile: "benchmarks/budgets-kind.yaml", Violations: []bench.Violation{}}
 
 	var sb strings.Builder
 	r.RenderHuman(&sb)

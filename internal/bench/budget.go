@@ -25,7 +25,8 @@ type BudgetComparisons struct {
 	SuspendUXTaxP50Max float64 `json:"suspendUXTaxP50Max,omitempty"`
 }
 
-// Budget is the per-environment latency contract (bench/budgets-<env>.yaml).
+// Budget is the per-environment latency contract
+// (benchmarks/budgets-<env>.yaml).
 type Budget struct {
 	Env string `json:"env"`
 	// AllowedWakeErrors caps 503+Retry-After events during resume
@@ -37,6 +38,8 @@ type Budget struct {
 	Comparisons BudgetComparisons         `json:"comparisons,omitempty"`
 }
 
+// LoadBudget reads and strictly parses a budget YAML file — unknown fields
+// are rejected so a typo can't silently disable a limit.
 func LoadBudget(path string) (*Budget, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {

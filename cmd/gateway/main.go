@@ -7,16 +7,18 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"syscall"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/api"
-	"github.com/adityashantanu/ai-agent-service/internal/config"
-	"github.com/adityashantanu/ai-agent-service/internal/idle"
-	"github.com/adityashantanu/ai-agent-service/internal/proxy"
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
-	"github.com/adityashantanu/ai-agent-service/internal/server"
-	"github.com/adityashantanu/ai-agent-service/internal/telegram"
+	"github.com/aditya-shantanu/ai-agent-service/internal/api"
+	"github.com/aditya-shantanu/ai-agent-service/internal/config"
+	"github.com/aditya-shantanu/ai-agent-service/internal/idle"
+	"github.com/aditya-shantanu/ai-agent-service/internal/proxy"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/server"
+	"github.com/aditya-shantanu/ai-agent-service/internal/telegram"
 )
 
 func main() {
@@ -93,7 +95,13 @@ func main() {
 		ActiveTimeout:        cfg.IdleActiveTimeout,
 		SuspendTelegramUsers: cfg.SuspendTelegramUsers,
 	}
-	go suspender.Run(context.Background())
+	// Background loops and in-flight requests all stop on SIGINT/SIGTERM —
+	// Kubernetes sends SIGTERM on every rollout, and dropping held
+	// wake-on-connect requests there would surface as user-visible errors.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	go suspender.Run(ctx)
 
 	cronWaker := &idle.CronWaker{
 		Resolver:    resolver,
@@ -101,16 +109,29 @@ func main() {
 		Grace:       cfg.CronGrace,
 		WakeTimeout: cfg.WakeTimeout,
 	}
-	go cronWaker.Run(context.Background())
+	go cronWaker.Run(ctx)
 
 	srv := &http.Server{
 		Addr:              cfg.ListenAddr,
 		Handler:           server.New(cfg, handlers, userProxy),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.ListenAndServe() }()
 	slog.Info("hermes-gateway listening", "addr", cfg.ListenAddr, "namespace", cfg.Namespace)
-	if err := srv.ListenAndServe(); err != nil {
+
+	select {
+	case err := <-errCh:
 		slog.Error("server", "err", err)
 		os.Exit(1)
+	case <-ctx.Done():
+		// Give held wake-on-connect requests a chance to finish; the
+		// drain window must cover WakeTimeout to avoid dropping them.
+		slog.Info("shutting down", "drain", cfg.WakeTimeout+5*time.Second)
+		shCtx, cancel := context.WithTimeout(context.Background(), cfg.WakeTimeout+5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(shCtx); err != nil {
+			slog.Warn("shutdown", "err", err)
+		}
 	}
 }

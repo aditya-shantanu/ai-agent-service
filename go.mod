@@ -1,4 +1,4 @@
-module github.com/adityashantanu/ai-agent-service
+module github.com/aditya-shantanu/ai-agent-service
 
 go 1.26.4
 

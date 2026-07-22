@@ -1,7 +1,7 @@
 // Package bench implements the UX/performance benchmark harness behind
 // cmd/hermes-bench: gateway client, scenario runners, latency statistics,
-// budget gating and report rendering. See bench/README.md for the scenario
-// matrix and budget file format.
+// budget gating and report rendering. See benchmarks/README.md for the
+// scenario matrix and budget file format.
 package bench
 
 import "sort"

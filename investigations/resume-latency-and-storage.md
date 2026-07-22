@@ -1,14 +1,14 @@
 # Investigation: resume latency (PD attach) and the Filestore question
 
-**Date:** 2026-07-17 · **Status:** analysis; Option B since implemented.
-**Update (same day):** probe tuning + image streaming landed — resume is
-now **4 s on kind / ~11–14 s on GKE** (numbers below are the pre-fix
-measurements this analysis was based on); the 10 m active window (Option B)
-is deployed on GKE. The PD-attach chunk and Option C remain open.
-**Tracking:** these latency numbers are now measured repeatably by
-`make bench` / `make bench-gke` and gated by `benchmarks/budgets-*.yaml`
+**Date:** 2026-07-17. **Status:** Option A (Filestore) rejected; Option B
+(10 m active window) deployed on GKE; Option C (stage-in/stage-out) is the
+open endgame. The latency measurements *below* are the pre-probe-tuning
+numbers this analysis was based on and are kept as-is for the record;
+current resume latency is measured repeatably by `make bench` /
+`make bench-gke` and gated by `benchmarks/budgets-*.yaml`
 (see `benchmarks/README.md`).
-**Question asked:** resume takes 10s+, mostly PD attach. Can we use
+
+**The question:** resume takes 10s+, mostly PD attach. Can we use
 [Filestore zonal](https://docs.cloud.google.com/filestore/docs/service-tiers-zonal)
 instead? Why or why not, and what does it do to $/agent at scale?
 
@@ -67,8 +67,8 @@ cars:
 
 | `activeTimeout` | Resident time/day (3 conv) | At-scale floor | Wake UX |
 |---|---|---|---|
-| 2 m (today) | ~20 min | **$0.14** | most returns pay 16–25 s |
-| 10 m | ~50 min | ~$0.20 | quick follow-ups instant |
+| 2 m (kind default) | ~20 min | **$0.14** | most returns pay a cold resume |
+| 10 m (deployed on GKE) | ~50 min | ~$0.20 | quick follow-ups instant |
 | 30 m | ~1.9 h | ~$0.31 | most same-day returns instant |
 | 60 m | ~3.2 h | ~$0.44 | nearly all returns instant |
 

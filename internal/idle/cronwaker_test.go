@@ -9,7 +9,7 @@ import (
 
 	sandboxv1beta1 "sigs.k8s.io/agent-sandbox/api/v1beta1"
 
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
 )
 
 func suspendUser(t *testing.T, clients *sandbox.Clients, user string, nextWake time.Time) {

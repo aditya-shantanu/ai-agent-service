@@ -26,4 +26,6 @@ coverage.html
 kubeconfig*
 terraform/.terraform/
 terraform/*.tfstate*
-terraform/.terraform.lock.hcl
+*.tfplan
+tfplan
+.claude/settings.local.json

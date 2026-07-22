@@ -17,9 +17,9 @@ import (
 	extfake "sigs.k8s.io/agent-sandbox/clients/k8s/extensions/clientset/versioned/fake"
 	extv1beta1 "sigs.k8s.io/agent-sandbox/extensions/api/v1beta1"
 
-	"github.com/adityashantanu/ai-agent-service/internal/auth"
-	"github.com/adityashantanu/ai-agent-service/internal/idle"
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/auth"
+	"github.com/aditya-shantanu/ai-agent-service/internal/idle"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
 )
 
 const (

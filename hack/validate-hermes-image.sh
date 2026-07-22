@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# M1 validation: proves the pinned upstream Hermes image satisfies the
+# Image-contract validation: proves the pinned upstream Hermes image satisfies the
 # platform's env-driven contract (docs/hermes-image.md). Run against a local
 # Docker daemon. Idempotent; cleans up after itself.
 set -euo pipefail

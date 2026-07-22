@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/bench"
+	"github.com/aditya-shantanu/ai-agent-service/internal/bench"
 )
 
 func main() {

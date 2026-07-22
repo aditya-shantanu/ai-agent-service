@@ -6,10 +6,16 @@
 # label+taint automatically, and the gvisor RuntimeClass adds the matching
 # nodeSelector/toleration to every sandbox pod.
 # gcloud-managed until the Terraform provider exposes swapConfig.
+# Env: GKE_CLUSTER (default hermes-svc), GKE_ZONE (default us-central1-a);
+# project comes from GCP_PROJECT or your active gcloud config.
 set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
-gcloud container node-pools create hermes-gvisor-pool \
-  --cluster hermes-svc --zone us-central1-a \
+CLUSTER="${GKE_CLUSTER:-hermes-svc}"
+ZONE="${GKE_ZONE:-us-central1-a}"
+PROJECT_FLAG=()
+[ -n "${GCP_PROJECT:-}" ] && PROJECT_FLAG=(--project "$GCP_PROJECT")
+gcloud container node-pools create hermes-gvisor-pool "${PROJECT_FLAG[@]}" \
+  --cluster "$CLUSTER" --zone "$ZONE" \
   --machine-type n2d-standard-8 --spot \
   --image-type cos_containerd \
   --sandbox type=gvisor \
@@ -18,4 +24,4 @@ gcloud container node-pools create hermes-gvisor-pool \
   --node-labels hermes-swap=true \
   --node-taints hermes-swap=true:NoSchedule \
   --enable-image-streaming \
-  --system-config-from-file "$DIR/swap-experiment/kubelet-swap.yaml"
+  --system-config-from-file "$DIR/kubelet-swap.yaml"

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/adityashantanu/ai-agent-service/internal/sandbox"
+	"github.com/aditya-shantanu/ai-agent-service/internal/sandbox"
 )
 
 type entry struct {

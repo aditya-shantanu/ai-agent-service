@@ -36,6 +36,8 @@ type Client struct {
 	HTTP       *http.Client
 }
 
+// NewClient builds a Client whose per-request timeout must exceed the
+// longest gateway hold it will measure (provision and wake waits).
 func NewClient(baseURL, adminToken string, timeout time.Duration) *Client {
 	return &Client{
 		BaseURL:    strings.TrimRight(baseURL, "/"),

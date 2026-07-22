@@ -14,7 +14,9 @@ set -euo pipefail
 ENV="${ENV:-kind}"
 NS="${NS:-hermes-users}"
 KIND_CTX="${KIND_CTX:-kind-hermes-svc}"
-GKE_CTX="${GKE_CTX:-gke_gke-ai-eco-dev_us-central1-a_hermes-svc}"
+# Derived from GCP_PROJECT/GKE_ZONE/GKE_CLUSTER (kubectl's gke_* naming),
+# or set GKE_CTX directly.
+GKE_CTX="${GKE_CTX:-gke_${GCP_PROJECT:-}_${GKE_ZONE:-us-central1-a}_${GKE_CLUSTER:-hermes-svc}}"
 BIN="${BIN:-bin/hermes-bench}"
 POOL="${POOL:-hermes-pool}"
 
@@ -40,7 +42,7 @@ cleanup() {
   if [ -n "$SAVED_REPLICAS" ]; then
     CURRENT=$(k get sandboxwarmpool "$POOL" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo "")
     if [ -n "$CURRENT" ] && [ "$CURRENT" != "$SAVED_REPLICAS" ]; then
-      echo "bench.sh: warm pool at replicas=$CURRENT, restoring $SAVED_REPLICAS" >&2
+      echo "run.sh: warm pool at replicas=$CURRENT, restoring $SAVED_REPLICAS" >&2
       k patch sandboxwarmpool "$POOL" --type merge -p "{\"spec\":{\"replicas\":$SAVED_REPLICAS}}" || true
     fi
   fi
@@ -51,8 +53,12 @@ if [ "$ENV" = "kind" ]; then
   PORT=$(python3 -c 'import socket; s=socket.socket(); s.bind(("",0)); print(s.getsockname()[1]); s.close()')
   k port-forward svc/hermes-gateway "$PORT":8080 >/dev/null 2>&1 &
   PF_PID=$!
-  sleep 3
   GATEWAY="http://localhost:$PORT"
+  # Poll readiness instead of a blind sleep — port-forwards come up unevenly.
+  for _ in $(seq 1 30); do
+    curl -s -m 2 -o /dev/null "$GATEWAY/healthz" && break
+    sleep 0.5
+  done
 else
   LB_IP=$(k get svc hermes-gateway -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
   LB_PORT=$(k get svc hermes-gateway -o jsonpath='{.spec.ports[0].port}')
